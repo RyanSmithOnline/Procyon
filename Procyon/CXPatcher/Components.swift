@@ -186,44 +186,8 @@ enum ComponentUpdater {
         }
     }
 
-    /// Wine core libraries that earlier Procyon versions overlaid into the
-    /// patched app. They are a different Wine vintage than the CrossOver build
-    /// being patched, and a stale copy left behind by an older version keeps
-    /// the runtime broken (`failed to load start.exe: c000000d`) even after
-    /// updating, so patching removes them again.
-    private static let legacyWineOverlay = [
-        "lib/wine/x86_64-unix/ntdll.so",
-        "lib/wine/x86_64-unix/winedmo.so",
-        "lib/wine/x86_64-unix/win32u.so",
-        "lib/wine/x86_64-unix/winegstreamer.so",
-        "lib/wine/i386-windows/ntdll.dll",
-        "lib/wine/i386-windows/win32u.dll",
-        "lib/wine/x86_64-windows/ntdll.dll",
-        "lib/wine/x86_64-windows/win32u.dll",
-        "lib/wine/x86_64-windows/winegstreamer.dll",
-    ]
-
-    /// Removes a Wine core library previously overlaid by an older Procyon, so
-    /// the patched app falls back to the matching copy inside CrossOver.
-    static func removeLegacyWineOverlay(from app: URL) {
-        let f = FileManager.default
-        for relative in legacyWineOverlay {
-            let dest = app.appendingPathComponent(SHARED_SUPPORT_COMPONENT + "/" + relative)
-            guard f.fileExists(atPath: dest.path(percentEncoded: false)) else { continue }
-            do {
-                try f.removeItem(at: dest)
-                console.log("removed stale Wine overlay \(relative)")
-            } catch {
-                console.error("couldn't remove stale Wine overlay \(relative): \(String(reflecting: error))")
-            }
-        }
-    }
-
     /// Copies a component's bundled files into a patched CrossOver app.
     static func installBundled(_ component: PatchComponent, into app: URL) {
-        if component == .wine {
-            removeLegacyWineOverlay(from: app)
-        }
         let f = FileManager.default
         for file in component.bundledFiles {
             let dest = app.appendingPathComponent(SHARED_SUPPORT_COMPONENT + file.dest)
