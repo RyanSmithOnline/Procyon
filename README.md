@@ -11,7 +11,7 @@ Upstream project by [@italomandara](https://github.com/italomandara). This is a 
 
 ## What it does
 
-- Replaces CXPatcher: it patches your copy of CrossOver and adds an interface for launching Steam games
+- Replaces CXPatcher: it patches your copy of CrossOver with the latest DXMT and DXVK, and adds an interface for launching Steam games
 - Per-game launch options, including graphics backend and Vulkan backend
 - Runs 32-bit games faster with x87 via Rosetta x87
 - Can run Doom 2016 using the experimental MoltenVK build
@@ -83,6 +83,23 @@ The changes needed to keep a large library usable:
 - **Progressive rendering.** Games appear in the grid as each one resolves instead of waiting for the slowest response.
 - **Indexed metadata lookup.** `GameThumbnail` used to scan the whole `gamesMeta` array per thumbnail, which is O(n²): at 1000 games that was a million string constructions per render. Lookups now go through a dictionary built once per load, measured ~320x faster at 1000 games.
 - **Memoized sort and filter.** `filteredGames` re-sorted the library on every view that read it. The result is now cached and invalidated only when the library, filter, or sort order actually changes.
+
+### Patches CrossOver with the latest DXMT and DXVK
+
+Patching a CrossOver is the point of this app, and a patched CrossOver is only as good as the components in it. Upstream shipped fixed binary snapshots in `Procyon/Libs/`, so a fresh checkout always patched with whatever those snapshots happened to be.
+
+The patcher now resolves the newest upstream release of each component and installs that:
+
+| Component | Source | Installed into |
+| --- | --- | --- |
+| DXMT | [`3Shain/dxmt`](https://github.com/3Shain/dxmt) | `lib/dxmt/{x86_64-unix,i386-windows,x86_64-windows}` |
+| DXVK | [`Gcenx/DXVK-macOS`](https://github.com/Gcenx/DXVK-macOS) | `lib/dxvk/{i386-windows,x86_64-windows}` |
+
+Both use the `-builtin` release variants, which are plain DLL/SO pairs meant to be dropped into a Wine prefix. For each one the patcher asks the GitHub releases API for the latest tag, downloads the matching asset, extracts it, and copies the payload over the copied app. Archives are cached under `~/Library/Caches/Procyon/downloads/components/`, keyed by tag, so re-patching is quick and works offline once a version has been fetched. Use *Delete all downloads cache* in Options to force a refetch.
+
+D9VK is still installed from the bundle: it supplies `d3d9`, which DXVK has not shipped for a long time. If a download fails (offline, GitHub rate limit, unexpected release layout) the patcher logs it and falls back to the bundled DXVK snapshot, and DXMT is skipped so CrossOver's own DXMT is left in place. You never end up with a half-installed component.
+
+**Wine is deliberately not downloaded.** The runtime is the one inside your installed CrossOver (`Contents/SharedSupport/CrossOver/bin/wine`), so the newest Wine is whichever version CrossOver ships, and upgrading CrossOver is what upgrades Wine. Overwriting individual Wine components with third-party builds of a different vintage is the one thing that reliably breaks a bottle, so the patcher does not attempt it.
 
 ### Owned-but-not-installed games
 
