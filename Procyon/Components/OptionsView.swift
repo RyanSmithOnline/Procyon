@@ -14,7 +14,6 @@ struct OptionsView: View {
     @State var progressLabel = "Processing..."
     @State var downloading: Bool = false
     @State var shouldShowBottleSelector: Bool = false
-    @State private var apiKey: String = ""
     @EnvironmentObject var appGlobals: AppGlobals
     @EnvironmentObject var libraryPageGlobals: LibraryPageGlobals
     @MainActor var load: @Sendable () async -> Void
@@ -127,32 +126,6 @@ struct OptionsView: View {
                             TarDownloader.deleteAllDownloadCache()
                         }
                     }
-                    VStack(alignment: .leading) {
-                        Divider().padding(.top, 10)
-                        Text("Steam account (optional)")
-                            .padding(.vertical, 5)
-                        Text("Add your own Steam Web API key to show games you own but haven't installed. Requires a public profile with game details visible.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        SecureField("Steam Web API key", text: $apiKey)
-                            .textFieldStyle(.roundedBorder)
-                            .onChange(of: apiKey) { _, newValue in
-                                if newValue.isEmpty {
-                                    Keychain.delete(SteamWebAPI.apiKeyAccount)
-                                } else {
-                                    Keychain.set(newValue, for: SteamWebAPI.apiKeyAccount)
-                                }
-                            }
-                        HStack {
-                            Link("Get a key", destination: URL(string: "https://steamcommunity.com/dev/apikey")!)
-                                .font(.footnote)
-                            Spacer()
-                            Button("Refresh") {
-                                Task { await load() }
-                            }
-                            .font(.footnote)
-                        }
-                    }
                     if(debugEnabled == true) {
                         Divider().padding(.top, 10)
                         Text("Debug")
@@ -173,7 +146,6 @@ struct OptionsView: View {
             .padding(.vertical)
         }
         .onAppear() {
-            apiKey = Keychain.get(SteamWebAPI.apiKeyAccount) ?? ""
             if let path = readUsrDefOptionString(key: "cxCompleteAppPath") {
                 console.log("loading paths for bottles")
                 bottles = getAllBottles(appDir: URL(fileURLWithPath: path))

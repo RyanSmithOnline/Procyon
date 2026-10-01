@@ -39,9 +39,7 @@ Upstream project by [@italomandara](https://github.com/italomandara). This is a 
 
 4. Open the Procyonized Steam from Procyon and log in. Configure your Steam folders there. Steam library folders in other bottles and on external drives are detected too, so you don't have to reinstall games.
 
-5. Open the options panel again and re-select the bottle from the dropdown. Procyon scans your library folders and populates the library. Wait for the analysis to finish.
-
-6. (Optional) To also show games you own but haven't installed, paste a Steam Web API key into Options and press Refresh (see [owned games](#optional-owned-but-not-installed-games)).
+5. Open the options panel again and re-select the bottle from the dropdown. Procyon scans your library folders and populates the library. Wait for the analysis to finish. Games you own but haven't installed are picked up automatically from Steam's local caches (see [owned games](#owned-but-not-installed-games)) — no account or API key needed.
 
 ## Changes in this fork
 
@@ -61,8 +59,8 @@ Profile data (display name, avatar, Steam ID) is read from `loginusers.vdf` in y
 
 Two consequences:
 
-- **Owned-but-not-installed games are opt-in.** By default every entry is installed on disk. If you add your own Steam Web API key in Options (with a public profile), Procyon also lists games you own but haven't installed, marked as not installed.
-- **Cold starts still need network** for store metadata. Once cached, your library loads offline. Local manifests and profile work fully offline.
+- **Owned-but-not-installed games come from Steam's local caches.** Procyon reads the library cache Steam keeps on disk and lists games you own but haven't installed, marked as not installed. No account, API key, or network request is involved.
+- **Cold starts still need network** for store metadata. Once cached, your library loads offline. Local manifests, the owned-games list, and profile work fully offline.
 
 ### Removed all Swift Package dependencies
 
@@ -86,13 +84,15 @@ The changes needed to keep a large library usable:
 - **Indexed metadata lookup.** `GameThumbnail` used to scan the whole `gamesMeta` array per thumbnail, which is O(n²): at 1000 games that was a million string constructions per render. Lookups now go through a dictionary built once per load, measured ~320x faster at 1000 games.
 - **Memoized sort and filter.** `filteredGames` re-sorted the library on every view that read it. The result is now cached and invalidated only when the library, filter, or sort order actually changes.
 
-### Optional: owned-but-not-installed games
+### Owned-but-not-installed games
 
-The retired backend used to supply the account's owned-games list, so those entries disappeared with it. They can come back without any backend if you add your own Steam Web API key in Options:
+The retired backend used to supply the account's owned-games list, so those entries disappeared with it. They are back, with no backend and no account, read entirely from Steam's own local caches (`SteamLocalLibrary.swift`):
 
-- Get a free key at <https://steamcommunity.com/dev/apikey> (your Steam profile's game details must be public). The key is stored in the macOS Keychain, never in a plist.
-- Procyon calls Valve's `IPlayerService/GetOwnedGames` and merges owned app IDs that aren't installed into the library as not-installed entries, which display an Install button instead of Play.
-- The owned app ID list is cached, so an offline start still shows them. With no key configured, the library is exactly what is installed on disk.
+- `appcache/librarycache/<appid>/` – Steam's library artwork cache, one folder per app in the account's library. This is the main source.
+- `userdata/<id>/config/librarycache/<appid>.json` – the per-user library page cache.
+- `userdata/<id>/config/localconfig.vdf` – per-app playtime and state.
+
+Procyon unions the app IDs found there, drops the ones already installed and the ones on `BLACKLIST`, and merges the rest into the library as not-installed entries, which display an Install button instead of Play. Both the selected CrossOver bottle and a native macOS Steam install are inspected. Nothing leaves your machine and nothing is written to a plist or the Keychain.
 
 ### Fixed Steam launching
 
@@ -106,7 +106,7 @@ The launcher and CrossOver integration were fixed to keep:
 
 ## Known limitations
 
-- Owned-but-not-installed games need an optional Steam Web API key (see above).
+- The owned-but-not-installed list is only as complete as Steam's local caches. A game that never made it into the library cache won't appear, and entries without a Store page are silently dropped. Tools and runtimes that share Steam's library cache may appear alongside games.
 - Steam metadata requires a network connection on first load.
 - This is a work in progress. Use at your own risk.
 

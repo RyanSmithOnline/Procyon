@@ -158,17 +158,17 @@ struct LibraryPage: View {
                 }
             }
         }
-        // Optional: merge in games the account owns but hasn't installed, when
-        // the user configured a Steam Web API key. They show as not installed.
-        await mergeOwnedGames()
+        // Merge in games the account owns but hasn't installed, read from
+        // Steam's local caches. They show as not installed.
+        mergeLocalLibraryGames()
         // One index build instead of a per-thumbnail linear scan.
         libraryPageGlobals.gamesMetaIndex = Dictionary(
             libraryPageGlobals.gamesMeta.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
         // The library is built from the local appmanifest_*.acf files above;
-        // owned-but-not-installed games are added by `mergeOwnedGames()` when an
-        // optional Steam Web API key is configured.
+        // owned-but-not-installed games are added by `mergeLocalLibraryGames()`
+        // from Steam's local caches.
         do {
             // Games appear as each one resolves rather than after the slowest
             // fetch, so the grid is browsable while a big library loads.
@@ -191,38 +191,26 @@ struct LibraryPage: View {
         }
     }
 
-    /// Merges owned-but-not-installed games into `gamesMeta` as entries with an
-    /// empty install dir, so `fetchGamesInfo` builds them with
+    /// Merges games the account owns but hasn't installed into `gamesMeta` as
+    /// entries with an empty install dir, so `fetchGamesInfo` builds them with
     /// `isInstalled == false` and the grid shows them with an Install button.
     ///
-    /// Best-effort: needs the optional Steam Web API key, and on failure falls
-    /// back to the last cached owned list so offline starts still show them.
+    /// The list comes from Steam's own on-disk caches (see
+    /// `SteamLocalLibrary.ownedAppIDs`), so it needs no API key or account
+    /// login and works fully offline.
     @MainActor
-    private func mergeOwnedGames() async {
-        guard let apiKey = Keychain.get(SteamWebAPI.apiKeyAccount), !apiKey.isEmpty,
-              let bottlePath = URL(string: appGlobals.selectedBottle),
-              let user = getSteamUserDataFallback(usingBottlePath: bottlePath) else {
-            return
-        }
-        let owned: [Int]
-        do {
-            owned = try await SteamWebAPI.fetchOwnedAppIDs(apiKey: apiKey, steamID: user.steamID)
-            persistUsrDefData(key: "steamOwnedGames", data: owned)
-        } catch {
-            console.warn("Couldn't fetch owned games; using the cached list")
-            owned = readUsrDefData(key: "steamOwnedGames") ?? []
-        }
+    private func mergeLocalLibraryGames() {
+        guard let bottlePath = URL(string: appGlobals.selectedBottle) else { return }
+        let owned = SteamLocalLibrary.ownedAppIDs(bottlePath: bottlePath)
         guard !owned.isEmpty else { return }
         let known = Set(libraryPageGlobals.gamesMeta.map { $0.appid })
         // Sentinel folder so each owned entry gets a unique `GamesMeta.id`
         // without colliding with a real, scanned library folder.
         let ownedFolder = URL(string: "owned://")!
         var added = 0
-        for appid in owned {
-            let id = String(appid)
-            guard !known.contains(id), !BLACKLIST.contains(id) else { continue }
+        for appid in owned where !known.contains(appid) && !BLACKLIST.contains(appid) {
             libraryPageGlobals.gamesMeta.append(GamesMeta(
-                appid: id,
+                appid: appid,
                 installdir: "",
                 isNative: false,
                 libraryFolder: ownedFolder,
@@ -231,7 +219,7 @@ struct LibraryPage: View {
             ))
             added += 1
         }
-        console.log("Owned games: \(owned.count), added \(added) not installed")
+        console.log("Steam local library cache: \(owned.count) app ids, added \(added) not installed")
     }
 }
 
