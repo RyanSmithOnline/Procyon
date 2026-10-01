@@ -163,7 +163,12 @@ func openSteam(cxAppPath: String?, selectedBottle: String?) {
     try? safeShell(killCommand)
     Thread.sleep(forTimeInterval: 0.5)
 
-    let steamLaunchCommand = "env WINEMSYNC=1 CX_BOTTLE_PATH=\"\(bottleParentDir)\" WINEPREFIX=\"\(bottlePath)\" CX_ROOT=\"\(absoluteCxPath)/Contents/SharedSupport/CrossOver\" MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0 CX_GRAPHICS_BACKEND=\"\(CXGraphicsBackend.d3dmetal.rawValue)\" \"\(wineBin)\" --bottle \"\(bottleName)\" \"\(steamWindowsPath)\""
+    // Same runtime environment the game launcher uses, so Steam starts against
+    // the same patched CrossOver build (DXMT/DXVK/MoltenVK and the GStreamer
+    // paths for video) instead of a bare environment.
+    let inlineEnvs = getInlineEnvs(from: GameOptions(), cxAppPath: absoluteCxPath)
+    let separator = inlineEnvs.hasSuffix(" ") ? "" : " "
+    let steamLaunchCommand = "env \(inlineEnvs)\(separator)CX_BOTTLE_PATH=\"\(bottleParentDir)\" WINEPREFIX=\"\(bottlePath)\" CX_ROOT=\"\(absoluteCxPath)/Contents/SharedSupport/CrossOver\" WINEMSYNC=1 \"\(wineBin)\" --bottle \"\(bottleName)\" \"\(steamWindowsPath)\""
     
     do {
         console.log("Launching Steam with command: \(steamLaunchCommand)")

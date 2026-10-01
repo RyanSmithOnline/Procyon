@@ -83,29 +83,23 @@ enum PatchComponent: String, CaseIterable {
     /// Files copied straight out of the app bundle, as bundle-relative resource
     /// name and a destination relative to `Contents/SharedSupport/CrossOver`.
     ///
-    /// These override the matching components inside CrossOver's Wine. `ntdll`
-    /// and `win32u` are the two that make the patched runtime behave
-    /// consistently across bottles, `winedmo`/`winegstreamer` supply the fixes
-    /// for video decode and Media Foundation playback, and D9VK provides
-    /// `d3d9`, which DXVK has not shipped for a long time.
+    /// Only D9VK is overlaid. It supplies `d3d9`, which DXVK has not shipped for
+    /// a long time, and it is a self-contained drop-in for a single library.
+    ///
+    /// The Wine core (`ntdll`, `win32u`, `winedmo`, `winegstreamer`) is
+    /// deliberately *not* overlaid. The bundled copies are a different Wine
+    /// vintage than the one inside the CrossOver build being patched, and
+    /// `ntdll.so` is the first library every Wine process loads, so a mismatch
+    /// there makes the whole runtime fail before any program starts:
+    /// `wine: failed to load start.exe: c000000d`. That broke Steam and every
+    /// other launch. CrossOver's own copies of these libraries stay in place.
     var bundledFiles: [(res: String, dest: String)] {
-        let overlay: [String] = [
-            "x86_64-unix/ntdll.so",
-            "x86_64-unix/winedmo.so",
-            "x86_64-unix/win32u.so",
-            "x86_64-unix/winegstreamer.so",
-            "i386-windows/ntdll.dll",
-            "i386-windows/win32u.dll",
-            "x86_64-windows/ntdll.dll",
-            "x86_64-windows/win32u.dll",
-            "x86_64-windows/winegstreamer.dll",
-        ]
         let d9vk: [(res: String, dest: String)] = [
             (res: "d9vk/x32/d3d9_builtin.dll", dest: "/lib/wine/i386-windows/d3d9.dll"),
             (res: "d9vk/x64/d3d9_builtin.dll", dest: "/lib/wine/x86_64-windows/d3d9.dll"),
         ]
         guard self == .wine else { return [] }
-        return overlay.map { (res: "wine/" + $0, dest: "/lib/wine/" + $0) } + d9vk
+        return d9vk
     }
 }
 
@@ -192,8 +186,44 @@ enum ComponentUpdater {
         }
     }
 
+    /// Wine core libraries that earlier Procyon versions overlaid into the
+    /// patched app. They are a different Wine vintage than the CrossOver build
+    /// being patched, and a stale copy left behind by an older version keeps
+    /// the runtime broken (`failed to load start.exe: c000000d`) even after
+    /// updating, so patching removes them again.
+    private static let legacyWineOverlay = [
+        "lib/wine/x86_64-unix/ntdll.so",
+        "lib/wine/x86_64-unix/winedmo.so",
+        "lib/wine/x86_64-unix/win32u.so",
+        "lib/wine/x86_64-unix/winegstreamer.so",
+        "lib/wine/i386-windows/ntdll.dll",
+        "lib/wine/i386-windows/win32u.dll",
+        "lib/wine/x86_64-windows/ntdll.dll",
+        "lib/wine/x86_64-windows/win32u.dll",
+        "lib/wine/x86_64-windows/winegstreamer.dll",
+    ]
+
+    /// Removes a Wine core library previously overlaid by an older Procyon, so
+    /// the patched app falls back to the matching copy inside CrossOver.
+    static func removeLegacyWineOverlay(from app: URL) {
+        let f = FileManager.default
+        for relative in legacyWineOverlay {
+            let dest = app.appendingPathComponent(SHARED_SUPPORT_COMPONENT + "/" + relative)
+            guard f.fileExists(atPath: dest.path(percentEncoded: false)) else { continue }
+            do {
+                try f.removeItem(at: dest)
+                console.log("removed stale Wine overlay \(relative)")
+            } catch {
+                console.error("couldn't remove stale Wine overlay \(relative): \(String(reflecting: error))")
+            }
+        }
+    }
+
     /// Copies a component's bundled files into a patched CrossOver app.
     static func installBundled(_ component: PatchComponent, into app: URL) {
+        if component == .wine {
+            removeLegacyWineOverlay(from: app)
+        }
         let f = FileManager.default
         for file in component.bundledFiles {
             let dest = app.appendingPathComponent(SHARED_SUPPORT_COMPONENT + file.dest)

@@ -57,6 +57,17 @@ struct GamesList: View {
                 }
             }
             ToolbarItem(placement: .secondaryAction) {
+                // Installs live in Steam itself: the library only knows about
+                // games that have an `appmanifest_*.acf`, so anything not yet
+                // installed has to be added from the Steam client. Once it is,
+                // the next scan picks it up.
+                Button {
+                    openSteam(cxAppPath: appGlobals.cxAppPath, selectedBottle: appGlobals.selectedBottle)
+                } label: {
+                    Label("Install games in Steam", systemImage: "arrow.down.app")
+                }
+            }
+            ToolbarItem(placement: .secondaryAction) {
                 Button {
                     libraryPageGlobals.clearLibrary()
                     Task { await load() }

@@ -47,27 +47,23 @@ Procyon does not download a Wine runtime. The launcher runs the Wine inside your
 installed CrossOver app (`Contents/SharedSupport/CrossOver/bin/wine`), so
 upgrading CrossOver is what upgrades Wine.
 
-The patcher does, however, replace individual Wine components in the patched
-copy with a bundled overlay, because these are the ones that need to behave the
-same way regardless of which CrossOver the copy came from:
+The patcher does, however, install one bundled component into the patched copy,
+because it is a self-contained drop-in for a single library and so does not
+depend on the Wine vintage underneath it:
 
 | Bundled path | Source | Licence |
 | --- | --- | --- |
-| `wine/x86_64-unix/ntdll.so` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
-| `wine/x86_64-unix/win32u.so` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
-| `wine/x86_64-unix/winedmo.so` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
-| `wine/x86_64-unix/winegstreamer.so` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
-| `wine/i386-windows/ntdll.dll` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
-| `wine/i386-windows/win32u.dll` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
-| `wine/x86_64-windows/ntdll.dll` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
-| `wine/x86_64-windows/win32u.dll` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
-| `wine/x86_64-windows/winegstreamer.dll` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
 | `d9vk/x32/d3d9_builtin.dll`, `d9vk/x64/d3d9_builtin.dll` | [DualCoder/d9vk](https://github.com/DualCoder/d9vk) | LGPL-2.1-or-later |
 
-Because `ntdll` and `win32u` are replaced, this overlay is matched to the Wine
-vintage this fork ships rather than to your current CrossOver. Nothing outside
-the patched copy is modified, and re-patching from Options rebuilds the copy from
-your installed CrossOver.
+Earlier versions of this fork also overlaid the Wine core (`ntdll`, `win32u`,
+`winedmo`, `winegstreamer`) from a bundled `Gcenx/macOS_Wine_builds` snapshot.
+That is not done any more, and those files are no longer bundled: `ntdll.so` is
+the first library every Wine process loads, so installing one from a different
+Wine vintage than the target CrossOver broke the runtime outright
+(`wine: failed to load start.exe: c000000d`), preventing Steam and every other
+program from starting. Patching now removes any such files left behind by an
+older build. Nothing outside the patched copy is modified, and re-patching from
+Options rebuilds the copy from your installed CrossOver.
 
 DXMT is selected at launch with `CX_GRAPHICS_BACKEND=dxmt`. It is not in
 `Procyon/Libs/`: it is downloaded from `3Shain/dxmt` at patch time, and
