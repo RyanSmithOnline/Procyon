@@ -152,7 +152,6 @@ Thanks to:
 - [@Gcenx](https://github.com/Gcenx) for the patched Wine components and DXVK macOS builds
 - [@nastys](https://github.com/nastys) for the UE4 MoltenVK hack
 - [CodeWeavers](https://www.codeweavers.com) for CrossOver
-- Valve for the public Store API
 
 ## Licence
 
