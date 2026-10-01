@@ -97,9 +97,31 @@ The patcher now resolves the newest upstream release of each component and insta
 
 Both use the `-builtin` release variants, which are plain DLL/SO pairs meant to be dropped into a Wine prefix. For each one the patcher asks the GitHub releases API for the latest tag, downloads the matching asset, extracts it, and copies the payload over the copied app. Archives are cached under `~/Library/Caches/Procyon/downloads/components/`, keyed by tag, so re-patching is quick and works offline once a version has been fetched. Use *Delete all downloads cache* in Options to force a refetch.
 
-D9VK is still installed from the bundle: it supplies `d3d9`, which DXVK has not shipped for a long time. If a download fails (offline, GitHub rate limit, unexpected release layout) the patcher logs it and falls back to the bundled DXVK snapshot, and DXMT is skipped so CrossOver's own DXMT is left in place. You never end up with a half-installed component.
+**Wine is not downloaded, but it is patched.** There is no upstream Wine release that is safe to drop into a current CrossOver — `Gcenx/macOS_Wine_builds` only publishes generic `wine-devel`/`wine-staging` trees, and mixing a Wine from a different vintage into a bottle is the surest way to break it. So the runtime stays CrossOver's own, and the patcher instead installs a bundled overlay of the individual components that benefit from it, over `lib/wine/`:
 
-**Wine is deliberately not downloaded.** The runtime is the one inside your installed CrossOver (`Contents/SharedSupport/CrossOver/bin/wine`), so the newest Wine is whichever version CrossOver ships, and upgrading CrossOver is what upgrades Wine. Overwriting individual Wine components with third-party builds of a different vintage is the one thing that reliably breaks a bottle, so the patcher does not attempt it.
+| Component | Why |
+| --- | --- |
+| `ntdll.so`, `ntdll.dll` | consistent process/heap behaviour across bottles |
+| `win32u.so`, `win32u.dll` | fixes window and input handling under CrossOver |
+| `winedmo.so`, `winegstreamer.dll` | video decode and Media Foundation playback (the Soulcalibur fix) |
+| `d3d9.dll` (D9VK) | `d3d9`, which DXVK has not shipped for a long time |
+
+Because the overlay replaces `ntdll` and `win32u`, it is version-matched to what this fork ships rather than to whatever your CrossOver currently is. If a patched app misbehaves after a CrossOver update, re-patch from Options; if it still does, point Procyon at your unpatched CrossOver — nothing outside the patched copy is touched.
+
+D9VK is installed from the bundle and DXVK from its upstream release, with the bundled DXVK snapshot as fallback. If a download fails (offline, GitHub rate limit, unexpected release layout) the patcher logs it and falls back to the bundled snapshot, and DXMT is skipped so CrossOver's own DXMT is left in place. You never end up with a half-installed component.
+
+The patched runtime's `winegstreamer` needs to be pointed at the GStreamer plugins in the same CrossOver build, so launches also set `GST_PLUGIN_SYSTEM_PATH`, `GST_PLUGIN_PATH` and `GST_PLUGIN_SCANNER`; without them video playback fails silently.
+
+### Finds the game Steam actually launched
+
+Windows games are tracked by reading Steam's own `gameprocess_log.txt` from the
+bottle, which names the real process for an app id. The previous approach walked
+the game's install directory collecting every `.exe` and polled for a process
+name, which matched launcher stubs and helper executables ahead of the game and
+missed games that rename or relocate their binary. Native games have no such log
+and still fall back to process polling. Once the game is up its window is brought
+to the front, and when it exits Steam is given a chance to finish its cloud sync
+before being shut down.
 
 ### Owned-but-not-installed games
 

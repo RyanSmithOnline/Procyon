@@ -121,16 +121,17 @@ struct GameHeader: View {
         Task {
             do {
                 Task(priority: .background) {
-                    tObserver = try await getGameTracker(appNames: game!.appNames, cxAppPath: appGlobals.cxAppPath!, bottleName: appGlobals.selectedBottle, onLoad: {
+                    tObserver = try await getGameTracker(appNames: game!.appNames, cxAppPath: appGlobals.cxAppPath!, bottleName: appGlobals.selectedBottle, onLoad: { appName in
                         DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
                             libraryPageGlobals.setLoader(state: false)
+                            activateApp(appName)
                         }
                         libraryPageGlobals.playingID = game!.id
                     }, onTerminate: {
                         libraryPageGlobals.setLoader(state: false) // if doesn't get loaded i need to close the loader
                         libraryPageGlobals.playingID = nil
                         tObserver = nil
-                    }, isNative: game!.isNative)
+                    }, isNative: game!.isNative, steamID: game!.isCustom == true ? nil : game!.steamAppID, steamPath: appGlobals.windowsSteamFolder?.path(percentEncoded: false) ?? "")
                 }
                 if(game!.isNative) {
                     try await launchNativeGame(id: String(game!.steamAppID), cxAppPath: appGlobals.cxAppPath ?? "", selectedBottle: appGlobals.selectedBottle, options: gameOptions, appExeURL: game!.appExeURL)

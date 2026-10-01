@@ -1,10 +1,11 @@
 //
 //  Util.swift
-//  CXPatcher
+//  Procyon
 //
 //  Created by Italo Mandara on 03/02/2026.
 //
 
+import AppKit
 import Foundation
 
 let PATCHED_CX_APPNAME = "Crossover_patched.app"
@@ -13,14 +14,6 @@ let SHARED_SUPPORT_COMPONENT = "Contents/SharedSupport/CrossOver"
 
 /// Snapshots shipped inside the app bundle, used when a component could not be
 /// fetched (offline, rate limited, or an unexpected release layout).
-///
-/// D9VK is always installed from here: it supplies `d3d9`, which DXVK has not
-/// shipped for a long time.
-private let bundledResources: [(res: String, dest: String)] = [
-    (res: "d9vk/x32/d3d9.dll", dest: "/lib/wine/i386-windows/d3d9.dll"),
-    (res: "d9vk/x64/d3d9.dll", dest: "/lib/wine/x86_64-windows/d3d9.dll"),
-]
-
 private let bundledDXVK: [String] = [
     "dxvk/i386-windows/d3d10core.dll",
     "dxvk/i386-windows/d3d11.dll",
@@ -28,14 +21,12 @@ private let bundledDXVK: [String] = [
     "dxvk/x86_64-windows/d3d11.dll",
 ]
 
-/// Fetches the newest DXMT and DXVK releases and installs them into a fresh
-/// copy of the user's CrossOver app.
+/// Fetches the newest DXMT and DXVK releases and installs them, together with the
+/// bundled Wine overlay and D9VK, into a fresh copy of the user's CrossOver app.
 ///
-/// Wine itself is deliberately left alone: the runtime comes from the installed
-/// CrossOver (`Contents/SharedSupport/CrossOver/bin/wine`), so the newest Wine
-/// is whichever one your CrossOver ships. Overriding individual Wine components
-/// with third-party builds of a different vintage is the one thing that reliably
-/// breaks a bottle, so it is not attempted here.
+/// Wine is not fetched: there is no upstream Wine release that is safe to drop
+/// into a current CrossOver, so the bundled overlay, which is matched to what
+/// this fork ships, is always installed.
 @discardableResult
 func makeCrossoverPatchedCopy(sourceCXPath: URL, setProgress: @escaping (Double, String) -> Void, setLoading: @escaping (Bool) -> Void, isX87: Bool = false) async -> URL {
     let f = FileManager.default
@@ -44,10 +35,10 @@ func makeCrossoverPatchedCopy(sourceCXPath: URL, setProgress: @escaping (Double,
     setLoading(true)
 
     // MARK: Step 1 fetch the latest components, best effort
-    let components = PatchComponent.allCases
+    let fetchedComponents = PatchComponent.allCases.filter(\.isFetched)
     var fetched: [PatchComponent: URL] = [:]
-    for (index, component) in components.enumerated() {
-        setProgress(Double(index) / Double(components.count) * 40, "Fetching \(component.displayName)…")
+    for (index, component) in fetchedComponents.enumerated() {
+        setProgress(Double(index) / Double(fetchedComponents.count) * 40, "Fetching \(component.displayName)…")
         do {
             fetched[component] = try await ComponentUpdater.prepare(component)
         } catch {
@@ -66,7 +57,7 @@ func makeCrossoverPatchedCopy(sourceCXPath: URL, setProgress: @escaping (Double,
 
         // MARK: Step 3 install the components
         setProgress(60, "Installing components…")
-        for component in components {
+        for component in fetchedComponents {
             guard let root = fetched[component] else { continue }
             try ComponentUpdater.install(component, from: root, into: destUrl)
         }
@@ -75,7 +66,9 @@ func makeCrossoverPatchedCopy(sourceCXPath: URL, setProgress: @escaping (Double,
         if fetched[.dxvk] == nil {
             installBundled(dxvk: bundledDXVK, into: destUrl)
         }
-        installBundled(resources: bundledResources, into: destUrl)
+        for component in PatchComponent.bundled {
+            ComponentUpdater.installBundled(component, into: destUrl)
+        }
 
         // Create cxplog marker
         let marker = destUrl.appendingPathComponent("Contents/cxplog.txt")
@@ -91,28 +84,33 @@ func makeCrossoverPatchedCopy(sourceCXPath: URL, setProgress: @escaping (Double,
     }
 }
 
-private func installBundled(resources: [(res: String, dest: String)], into app: URL) {
-    let f = FileManager.default
-    for resource in resources {
-        let dest = app.appendingPathComponent(SHARED_SUPPORT_COMPONENT + resource.dest)
-        if let source = Bundle.main.url(forResource: resource.res, withExtension: nil) {
-            console.log("copying resource \(resource.res)")
-            try? f.removeItem(at: dest)
-            try? f.copyItem(at: source, to: dest)
-        } else {
-            console.error("Resource file \(resource.res) not found")
-        }
-    }
-}
-
 private func installBundled(dxvk paths: [String], into app: URL) {
-    installBundled(
-        resources: paths.map { (res: $0, dest: "/lib/" + $0) },
-        into: app
-    )
+    let f = FileManager.default
+    for path in paths {
+        let dest = app.appendingPathComponent(SHARED_SUPPORT_COMPONENT + "/lib/" + path)
+        guard let source = Bundle.main.url(forResource: path, withExtension: nil) else {
+            console.error("Resource file \(path) not found")
+            continue
+        }
+        console.log("copying resource \(path)")
+        try? f.removeItem(at: dest)
+        try? f.copyItem(at: source, to: dest)
+    }
 }
 
 @discardableResult
 func makeX87CrossoverPatchedCopy(sourceCXPath: URL, patchedApp: URL) async -> URL {
     return await makeCrossoverPatchedCopy(sourceCXPath: sourceCXPath, setProgress: { _, _ in }, setLoading: { _ in }, isX87: true)
+}
+
+/// Brings a just-launched game's window to the front.
+///
+/// `activate(options:)` rather than `.activateAllWindows`: Wine game windows
+/// sometimes fail to come forward when every window is asked to activate at
+/// once, and a plain activate reliably raises the game.
+func activateApp(_ gameName: String) {
+    let app = NSWorkspace.shared.runningApplications.first(where: { gameName.contains($0.localizedName ?? "none") })
+    console.log("attempting to put your game in the foreground")
+    console.log(app?.executableURL?.lastPathComponent ?? app?.localizedName ?? "couldn't get app")
+    app?.activate()
 }

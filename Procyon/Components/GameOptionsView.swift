@@ -89,7 +89,7 @@ struct GameOptionsView: View {
                                 Text(localizedString(forKey: "preferredMaxFrameRate", value: preferredMaxFrameRate))
                                 Slider(
                                     value: $gameOptions.dxmtPreferredMaxFrameRate,
-                                    in: 19...240,
+                                    in: 19...400,
                                     step: 1.0
                                 )
                                 .help(localizedString(forKey: "preferredMaxFrameRateHelp"))
@@ -143,6 +143,12 @@ struct GameOptionsView: View {
         .onAppear() {
             if let data: GameOptionsData = readUsrDefData(key: gameOptKey) {
                 self.gameOptions.set(data: data)
+            }
+            // Options saved by an older build can name a backend that no longer
+            // exists, which would leave the game unlaunchable with no way to tell
+            // from the UI. Fall back to the default instead.
+            if !CXGraphicsBackend.allRawValues.contains(gameOptions.cxGraphicsBackend) {
+                gameOptions.cxGraphicsBackend = CXGraphicsBackend.d3dmetal.rawValue
             }
         }
     }

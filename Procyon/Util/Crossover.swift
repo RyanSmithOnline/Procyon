@@ -133,7 +133,7 @@ func getDxmtConfigEnv(values: [String]) -> String {
     return values.count == 0 ? "" : "DXMT_CONFIG=\"\(values.joined(separator: ";"))\""
 }
 
-func getInlineEnvs(from: GameOptions) -> String {
+func getInlineEnvs(from: GameOptions, cxAppPath: String? = nil) -> String {
     func DoubleToFormattedStr(_ value: Double, _ digits: Int = 2) -> String {
         return String(value.formatted(.number.precision(.fractionLength(0...digits))))
     }
@@ -141,12 +141,23 @@ func getInlineEnvs(from: GameOptions) -> String {
         return value != nil && value == true ? "1" : "0"
     }
     var value = from.envVariables == "" ? "" : "\(from.envVariables) "
-    let defaults = [
+    var defaults = [
         "D3DM_ENABLE_METALFX=1",
         "DXMT_ENABLE_NVEXT=1",
         "DXVK_ASYNC=1",
         "MVK_CONFIG_USE_MTLHEAP=2"
     ]
+    // The patched runtime ships its own winegstreamer, which needs to be pointed
+    // at the GStreamer plugins inside the same CrossOver build, otherwise it
+    // loads none and video playback silently fails.
+    if let cxAppPath {
+        let gst = "\(cxAppPath)/Contents/SharedSupport/CrossOver/lib64/GStreamer.framework/Versions/Current"
+        defaults += [
+            "GST_PLUGIN_SYSTEM_PATH=\(gst)/lib/gstreamer-1.0",
+            "GST_PLUGIN_PATH=\(gst)/lib/gstreamer-1.0",
+            "GST_PLUGIN_SCANNER=\(gst)/bin/gst-plugin-scanner",
+        ]
+    }
     value += defaults.joined(separator: " ") + " "
     value += from.mtlHudEnabled ? "MTL_HUD_ENABLED=1 " : ""
     value += from.ue4Hack ? "MVK_CONFIG_UE4_HACK_ENABLED=1 NAS_DISABLE_UE4_HACK=0 " : "MVK_CONFIG_UE4_HACK_ENABLED=0 NAS_DISABLE_UE4_HACK=1 "

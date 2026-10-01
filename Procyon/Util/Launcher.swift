@@ -26,13 +26,20 @@ func closeWineActivities() async throws {
     
     // Capture the target apps first to avoid the list changing while iterating
     let targets = NSWorkspace.shared.runningApplications.filter { app in
-        guard let url = app.executableURL else { return false }
-        return url.lastPathComponent.lowercased().hasSuffix(".exe") || url.lastPathComponent.lowercased().contains("wine")
+        // Wine processes can report a nil executableURL, in which case the
+        // bundle is the only place the process name is available.
+        if let bundleURL = app.bundleURL {
+            return bundleURL.lastPathComponent.lowercased().hasSuffix(".exe") || bundleURL.lastPathComponent.lowercased().contains("wine")
+        }
+        if let executableURL = app.executableURL {
+            return executableURL.lastPathComponent.lowercased().hasSuffix(".exe") || executableURL.lastPathComponent.lowercased().contains("wine")
+        }
+        return false
     }
 
     // Send terminate to all matching apps
     for app in targets {
-        if let name = app.executableURL?.lastPathComponent {
+        if let name = (app.executableURL ?? app.bundleURL)?.lastPathComponent {
             console.warn("terminating \(name)")
         }
         app.terminate()
@@ -65,7 +72,7 @@ func closeWineActivities() async throws {
     }
 }
 
-func trackPlaying(apps: [String], then: @escaping () -> Void, onTimeout: @escaping () -> Void, isNative: Bool) async throws -> Void {
+func trackPlaying(apps: [String], then: @escaping (_ matched: String) -> Void, onTimeout: @escaping () -> Void, isNative: Bool) async throws -> Void {
     let pollInterval: UInt64 = 500_000_000
     let gracePeriod: UInt64 = 60_000_000_000 // after 60 seconds give up tracking
     var elapsed: UInt64 = 0
@@ -85,11 +92,12 @@ func trackPlaying(apps: [String], then: @escaping () -> Void, onTimeout: @escapi
             return url.lastPathComponent.lowercased().hasSuffix(".exe") && !targets.contains(where: { $0.processIdentifier == app.processIdentifier })
         }
         targets.append(contentsOf: newTargets)
-        if(newTargets.contains { Set(nativeOrWineApps).contains($0.executableURL?.lastPathComponent) }) {
+        if let match = newTargets.first(where: { Set(nativeOrWineApps).contains($0.executableURL?.lastPathComponent) }) {
+            let matched = match.executableURL?.lastPathComponent ?? ""
             if(!isNative) { // attempts to "select" the app if for some reason it isn't (happens with wine/crossover)
-                newTargets.first(where: { Set(nativeOrWineApps).contains($0.executableURL?.lastPathComponent) })!.activate(options: [.activateAllWindows])
+                match.activate(options: [.activateAllWindows])
             }
-            then()
+            then(matched)
             return
         }
         elapsed += pollInterval
@@ -217,9 +225,9 @@ func launchWindowsGame(id: String, cxAppPath: String, selectedBottle: String, op
             return
         }
         let workdirCommand = appExeURL != nil ? "cd \"\(appExeURL!.deletingLastPathComponent().path(percentEncoded: false))\" && " : ""
-        command = "\(workdirCommand)env \(getInlineEnvs(from: options!) + wineEnvs) \"\(x87cxAppURL.path())/Contents/SharedSupport/CrossOver/lib/wine/x86_64-unix/wine\" \(gameLaunchCommand) \(arguments)"
+        command = "\(workdirCommand)env \(getInlineEnvs(from: options!, cxAppPath: x87cxAppURL.path()) + wineEnvs) \"\(x87cxAppURL.path())/Contents/SharedSupport/CrossOver/lib/wine/x86_64-unix/wine\" \(gameLaunchCommand) \(arguments)"
     } else {
-        command = "env \(getInlineEnvs(from: options!) + wineEnvs) \"\(absoluteCxPath)/Contents/SharedSupport/CrossOver/bin/wine\" --bottle \"\(bottleName)\" \(gameLaunchCommand) \(arguments)"
+        command = "env \(getInlineEnvs(from: options!, cxAppPath: absoluteCxPath) + wineEnvs) \"\(absoluteCxPath)/Contents/SharedSupport/CrossOver/bin/wine\" --bottle \"\(bottleName)\" \(gameLaunchCommand) \(arguments)"
     }
     
     #if DEBUG

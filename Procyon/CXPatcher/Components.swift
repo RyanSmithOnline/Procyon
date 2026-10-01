@@ -2,30 +2,46 @@
 //  Components.swift
 //  Procyon
 //
-//  Patcher components that are fetched from their upstream releases at patch
-//  time, so a patched CrossOver carries the newest DXMT and DXVK rather than
-//  whatever snapshot shipped inside the app bundle.
+//  Patcher components. DXMT and DXVK are fetched from their upstream releases
+//  at patch time, so a patched CrossOver carries the newest builds rather than
+//  whatever snapshot shipped inside the app bundle. Wine has no compatible
+//  upstream release, so it is installed from the bundled overlay.
 //
 
 import Foundation
 
-/// A component the patcher can refresh from its upstream GitHub releases.
+/// A component the patcher installs into a copied CrossOver app.
 enum PatchComponent: String, CaseIterable {
     case dxmt
     case dxvk
+    case wine
 
     var displayName: String {
         switch self {
         case .dxmt: return "DXMT"
         case .dxvk: return "DXVK"
+        case .wine: return "Wine"
         }
     }
 
+    /// Whether the component is refreshed from an upstream release archive.
+    ///
+    /// Wine is not: `Gcenx/macOS_Wine_builds` only publishes generic
+    /// `wine-devel`/`wine-staging` trees with no CrossOver-compatible asset, and
+    /// dropping a Wine from a different vintage into a current CrossOver is the
+    /// surest way to break a bottle. Wine is installed from the bundled overlay
+    /// instead, which is version-matched to what this fork ships.
+    var isFetched: Bool { self != .wine }
+
+    /// Components installed from the app bundle rather than fetched.
+    static var bundled: [PatchComponent] { allCases.filter { !$0.isFetched } }
+
     /// Repository the releases are published to.
-    var repo: String {
+    var repo: String? {
         switch self {
         case .dxmt: return "3Shain/dxmt"
         case .dxvk: return "Gcenx/DXVK-macOS"
+        case .wine: return nil
         }
     }
 
@@ -36,16 +52,17 @@ enum PatchComponent: String, CaseIterable {
 
     /// A file that must exist under the archive root, used to locate that root
     /// inside the extracted tarball.
-    var rootMarker: String {
+    var rootMarker: String? {
         switch self {
         case .dxmt: return "x86_64-unix/winemetal.so"
         case .dxvk: return "x86_64-windows/d3d11.dll"
+        case .wine: return nil
         }
     }
 
     /// Which directory of the archive maps to which directory inside
     /// CrossOver's `Contents/SharedSupport/CrossOver`.
-    var installDirs: [String: String] {
+    var installDirs: [String: String]? {
         switch self {
         case .dxmt:
             return [
@@ -58,7 +75,37 @@ enum PatchComponent: String, CaseIterable {
                 "i386-windows": "lib/dxvk/i386-windows",
                 "x86_64-windows": "lib/dxvk/x86_64-windows",
             ]
+        case .wine:
+            return nil
         }
+    }
+
+    /// Files copied straight out of the app bundle, as bundle-relative resource
+    /// name and a destination relative to `Contents/SharedSupport/CrossOver`.
+    ///
+    /// These override the matching components inside CrossOver's Wine. `ntdll`
+    /// and `win32u` are the two that make the patched runtime behave
+    /// consistently across bottles, `winedmo`/`winegstreamer` supply the fixes
+    /// for video decode and Media Foundation playback, and D9VK provides
+    /// `d3d9`, which DXVK has not shipped for a long time.
+    var bundledFiles: [(res: String, dest: String)] {
+        let overlay: [String] = [
+            "x86_64-unix/ntdll.so",
+            "x86_64-unix/winedmo.so",
+            "x86_64-unix/win32u.so",
+            "x86_64-unix/winegstreamer.so",
+            "i386-windows/ntdll.dll",
+            "i386-windows/win32u.dll",
+            "x86_64-windows/ntdll.dll",
+            "x86_64-windows/win32u.dll",
+            "x86_64-windows/winegstreamer.dll",
+        ]
+        let d9vk: [(res: String, dest: String)] = [
+            (res: "d9vk/x32/d3d9_builtin.dll", dest: "/lib/wine/i386-windows/d3d9.dll"),
+            (res: "d9vk/x64/d3d9_builtin.dll", dest: "/lib/wine/x86_64-windows/d3d9.dll"),
+        ]
+        guard self == .wine else { return [] }
+        return overlay.map { (res: "wine/" + $0, dest: "/lib/wine/" + $0) } + d9vk
     }
 }
 
@@ -85,7 +132,10 @@ private struct GitHubRelease: Decodable {
 enum ComponentUpdater {
     /// Resolves the newest installable release asset for `component`.
     static func latestAsset(for component: PatchComponent) async throws -> (tag: String, url: URL) {
-        guard let url = URL(string: "https://api.github.com/repos/\(component.repo)/releases/latest") else {
+        guard let repo = component.repo else {
+            throw HTTPError.badURL
+        }
+        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else {
             throw HTTPError.badURL
         }
         let release = try await HTTPClient.get(url, as: GitHubRelease.self)
@@ -100,12 +150,13 @@ enum ComponentUpdater {
     ///
     /// - Returns: the archive root holding the component's directories.
     static func prepare(_ component: PatchComponent) async throws -> URL {
+        guard let marker = component.rootMarker else { throw HTTPError.badURL }
         let (tag, remote) = try await latestAsset(for: component)
         let f = FileManager.default
         let dir = TarDownloader.getDownloadsDir()
             .appendingPathComponent("components", isDirectory: true)
             .appendingPathComponent("\(component.rawValue)-\(tag)", isDirectory: true)
-        if let root = locateRoot(in: dir, marker: component.rootMarker) {
+        if let root = locateRoot(in: dir, marker: marker) {
             console.log("\(component.displayName) \(tag) already downloaded")
             return root
         }
@@ -115,7 +166,7 @@ enum ComponentUpdater {
         try await download(remote, to: archive)
         try extract(archive, into: dir)
         try? f.removeItem(at: archive)
-        guard let root = locateRoot(in: dir, marker: component.rootMarker) else {
+        guard let root = locateRoot(in: dir, marker: marker) else {
             throw HTTPError.invalidResponse
         }
         console.log("\(component.displayName) \(tag) downloaded")
@@ -124,9 +175,10 @@ enum ComponentUpdater {
 
     /// Copies an extracted component into a patched CrossOver app.
     static func install(_ component: PatchComponent, from root: URL, into app: URL) throws {
+        guard let installDirs = component.installDirs else { throw HTTPError.invalidResponse }
         let f = FileManager.default
         let sharedSupport = app.appendingPathComponent(SHARED_SUPPORT_COMPONENT)
-        for (source, destination) in component.installDirs {
+        for (source, destination) in installDirs {
             let from = root.appendingPathComponent(source, isDirectory: true)
             guard let files = try? f.contentsOfDirectory(at: from, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { continue }
             let to = sharedSupport.appendingPathComponent(destination, isDirectory: true)
@@ -136,6 +188,25 @@ enum ComponentUpdater {
                 try? f.removeItem(at: dest)
                 try f.copyItem(at: file, to: dest)
                 console.log("installed \(component.displayName) \(file.lastPathComponent)")
+            }
+        }
+    }
+
+    /// Copies a component's bundled files into a patched CrossOver app.
+    static func installBundled(_ component: PatchComponent, into app: URL) {
+        let f = FileManager.default
+        for file in component.bundledFiles {
+            let dest = app.appendingPathComponent(SHARED_SUPPORT_COMPONENT + file.dest)
+            guard let source = Bundle.main.url(forResource: file.res, withExtension: nil) else {
+                console.error("bundled resource \(file.res) not found, leaving CrossOver's copy in place")
+                continue
+            }
+            try? f.removeItem(at: dest)
+            do {
+                try f.copyItem(at: source, to: dest)
+                console.log("installed \(component.displayName) \(file.dest)")
+            } catch {
+                console.error("couldn't install \(file.res): \(String(reflecting: error))")
             }
         }
     }

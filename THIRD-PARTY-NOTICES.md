@@ -41,31 +41,46 @@ them.
 | DXMT (release `-builtin` assets) | [3Shain/dxmt](https://github.com/3Shain/dxmt) | LGPL-2.1-or-later (Wine components) |
 | DXVK for macOS (release `-builtin` assets) | [Gcenx/DXVK-macOS](https://github.com/Gcenx/DXVK-macOS) | LGPL-2.1-or-later |
 
-## Wine comes from CrossOver
+## Wine components come from the bundle
 
-Procyon does not ship or download its own Wine:
+Procyon does not download a Wine runtime. The launcher runs the Wine inside your
+installed CrossOver app (`Contents/SharedSupport/CrossOver/bin/wine`), so
+upgrading CrossOver is what upgrades Wine.
 
-- At launch it runs the Wine inside your installed CrossOver app
-  (`Contents/SharedSupport/CrossOver/bin/wine`). Whatever Wine version your
-  CrossOver ships is the version Procyon uses, so upgrading CrossOver is what
-  upgrades Wine here.
-- The patcher deliberately does not overwrite individual Wine components with
-  third-party builds. A component from a different Wine vintage is the most
-  reliable way to break a bottle, so the runtime stays CrossOver's.
+The patcher does, however, replace individual Wine components in the patched
+copy with a bundled overlay, because these are the ones that need to behave the
+same way regardless of which CrossOver the copy came from:
+
+| Bundled path | Source | Licence |
+| --- | --- | --- |
+| `wine/x86_64-unix/ntdll.so` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
+| `wine/x86_64-unix/win32u.so` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
+| `wine/x86_64-unix/winedmo.so` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
+| `wine/x86_64-unix/winegstreamer.so` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
+| `wine/i386-windows/ntdll.dll` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
+| `wine/i386-windows/win32u.dll` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
+| `wine/x86_64-windows/ntdll.dll` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
+| `wine/x86_64-windows/win32u.dll` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
+| `wine/x86_64-windows/winegstreamer.dll` | Gcenx macOS Wine builds | LGPL-2.1-or-later |
+| `d9vk/x32/d3d9_builtin.dll`, `d9vk/x64/d3d9_builtin.dll` | [DualCoder/d9vk](https://github.com/DualCoder/d9vk) | LGPL-2.1-or-later |
+
+Because `ntdll` and `win32u` are replaced, this overlay is matched to the Wine
+vintage this fork ships rather than to your current CrossOver. Nothing outside
+the patched copy is modified, and re-patching from Options rebuilds the copy from
+your installed CrossOver.
 
 DXMT is selected at launch with `CX_GRAPHICS_BACKEND=dxmt`. It is not in
 `Procyon/Libs/`: it is downloaded from `3Shain/dxmt` at patch time, and
 CrossOver's own copy is used if that download fails.
 
-The `wine/` snapshot listed above is a set of Gcenx-patched components bundled
-with the app; it is not a complete, updatable Wine runtime.
-
 ## Versions
 
-The exact upstream versions of the bundled binaries have not been recorded in
-this repository. They are fixed snapshots, and are now only fallbacks: DXMT and
-DXVK are fetched from their upstream releases at patch time, and D9VK plus the
-`wine/` component overrides are still installed from the bundle. When you cut a
-release, recording the source tag or commit for each remaining `Libs/`
-component here is worth doing so that downstream redistributors can trace what
-they are shipping.
+DXMT and DXVK are fetched from their upstream releases at patch time, so the
+version that ends up in a patched CrossOver is whatever was newest when you
+patched. Record it if you need to reproduce a specific patched app.
+
+The bundled binaries are fixed snapshots with no recorded source tag. They are
+now only used as fallbacks and for the Wine overlay, but they are still installed
+unconditionally, so their vintage matters. When you cut a release, recording the
+source tag or commit for each `Libs/` component here is worth doing so that
+downstream redistributors can trace what they are shipping.

@@ -132,16 +132,17 @@ struct GameThumbnail: View {
                     console.warn("failed to retrieve game options")
                 }
                 Task(priority: .background) {
-                    tObserver = try await getGameTracker(appNames: updatedItem.appNames, cxAppPath: appGlobals.cxAppPath!, bottleName: appGlobals.selectedBottle, onLoad: {
+                    tObserver = try await getGameTracker(appNames: updatedItem.appNames, cxAppPath: appGlobals.cxAppPath!, bottleName: appGlobals.selectedBottle, onLoad: { appName in
                         libraryPageGlobals.playingID = item.id
                         DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
                             libraryPageGlobals.setLoader(state: false)
+                            activateApp(appName)
                         }
                     }, onTerminate: {
                         libraryPageGlobals.setLoader(state: false) // if doesn't get loaded i need to close the loader
                         libraryPageGlobals.playingID = nil
                         tObserver = nil
-                    }, isNative: item.isNative)
+                    }, isNative: item.isNative, steamID: updatedItem.isCustom == true ? nil : updatedItem.steamAppID, steamPath: appGlobals.windowsSteamFolder?.path(percentEncoded: false) ?? "")
                 }
                 if(item.isNative) {
                     try await launchNativeGame(id: String(item.steamAppID), cxAppPath: appGlobals.cxAppPath ?? "", selectedBottle: appGlobals.selectedBottle, options: gameOptions, appExeURL: item.appExeURL)

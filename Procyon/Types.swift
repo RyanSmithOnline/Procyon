@@ -8,12 +8,14 @@
 import Foundation
 import Combine
 
-enum CXGraphicsBackend: String {
+enum CXGraphicsBackend: String, CaseIterable {
     case dxmt = "dxmt"
     case d3dmetal = "d3dmetal"
     case wine = "wined3d"
     case dxvk = "dxvk"
     case auto = "auto"
+
+    static var allRawValues: [String] { allCases.map(\.rawValue) }
 }
 
 typealias CXDrives = [String: URL]
@@ -565,7 +567,16 @@ class LibraryPageGlobals: ObservableObject {
 final class AppGlobals: ObservableObject {
     @Published var selectedBottle: String = ""
     @Published var cxAppPath: String?
-    
+
+    /// The Windows Steam install inside the selected bottle, on the host
+    /// filesystem. Steam's `logs/gameprocess_log.txt` and `logs/cloud_log.txt`
+    /// live under here and are what launch tracking and cloud-sync waiting read.
+    var windowsSteamFolder: URL? {
+        guard let bottle = URL(string: selectedBottle) else { return nil }
+        let steam = bottle.appendingPathComponent("/drive_c/Program Files (x86)/Steam", isDirectory: true)
+        return FileManager.default.fileExists(atPath: steam.path(percentEncoded: false)) ? steam : nil
+    }
+
     init(selectedBottle: String? = "", cxAppPath: String? = nil) {
         self.selectedBottle = readUsrDefOptionString(key: "selectedBottle") ?? ""
         self.cxAppPath = readUsrDefOptionString(key: "cxAppPath")
