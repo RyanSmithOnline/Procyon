@@ -118,34 +118,8 @@ func safeShell(_ command: String) throws {
     try task.run()
 }
 
-func safeShellWithOutput(_ command: String) throws -> String {
-    let task = Process()
-    let pipe = Pipe()
-    
-    task.standardInput = nil
-    task.standardOutput = pipe
-    task.standardError = pipe
-    task.arguments = ["-c", command]
-    task.executableURL = URL(fileURLWithPath: "/bin/zsh")
-
-    try task.run()
-    
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    let output = String(data: data, encoding: .utf8)!
-    return output
-}
-
 let DEFAULT_STEAM_MAC_PATH = "/Library/Application Support/Steam/config/"
 let DEFAULT_STEAM_WINE_PATH = "/drive_c/Program Files (x86)/Steam/config/"
-
-func getSteamUserID (usingBottlePath: URL) -> String? {
-    let steamLoginUsersPath = usingBottlePath.appendingPathComponent(DEFAULT_STEAM_WINE_PATH)
-        .appendingPathComponent("loginusers.vdf")
-    guard let steamSettingsFile = try? String(contentsOfFile: steamLoginUsersPath.path(percentEncoded: false), encoding: .utf8) else { return nil }
-    let parsed = parseVDFToDict(from: steamSettingsFile)
-    let users = parsed["users"] as? [String: Any]
-    return users?.keys.first?.description
-}
 
 func getSteamUserDataFallback (usingBottlePath: URL) -> UserInfo? {
     let steamLoginUsersPath = usingBottlePath.appendingPathComponent(DEFAULT_STEAM_WINE_PATH)
@@ -158,11 +132,11 @@ func getSteamUserDataFallback (usingBottlePath: URL) -> UserInfo? {
         let personaName = user?["PersonaName"] as? String ?? ""
         let avatar = usingBottlePath.appendingPathComponent("/drive_c/Program Files (x86)/Steam/config/avatarcache/").appendingPathComponent(key).appendingPathExtension("png").absoluteString
         let fallbackProfileData = UserInfo(
-            steamID: "",
+            steamID: key,
             communityVisibilityState: 0,
             profileState: 0,
             personaName: personaName,
-            profileURL: "",
+            profileURL: "https://steamcommunity.com/profiles/\(key)",
             avatar: avatar,
             avatarMedium: avatar,
             avatarFull: avatar,
@@ -289,105 +263,7 @@ func getGameTracker(appNames: [String], cxAppPath: String, bottleName: String, o
     return tOb
 }
 
-func isSameFile(_ file1URL: URL, _ file2URL: URL) -> Bool {
-    let f = FileManager.default
-    do {
-        let attrs1 = try f.attributesOfItem(atPath: file1URL.path())
-        let attrs2 = try f.attributesOfItem(atPath: file2URL.path())
-        let sameSize = attrs1[.size] as? Int == attrs2[.size] as? Int
-        let sameDate = attrs1[.modificationDate] as? Date == attrs2[.modificationDate] as? Date
-        if(sameSize && sameDate) {
-            // just comparing attributes for now
-            return true
-        }
-    } catch {
-        console.error("couldn't get file attributes")
-        console.error(String(reflecting: error))
-        return false
-    }
-    return false
-}
-
-func getSystemWOW64URL(from: URL) -> URL {
-    return from
-        .appending(path: "drive_c")
-        .appending(path: "windows")
-        .appending(path: "syswow64")
-}
-
-func getSystem32URL(from: URL) -> URL {
-    return from
-        .appending(path: "drive_c")
-        .appending(path: "windows")
-        .appending(path: "system32")
-}
-
-func cpyd8d9DLLs(to url: URL, enable: Bool = true) throws -> Void {
-    let f = FileManager.default
-    let files = ["d3d9.dll", "d3d8.dll"]
-    
-    func copyByBitness(dllsUrl: URL, file: String, is32Bit: Bool) throws {
-        let dllPathComponentByBitness = "drive_c" + (is32Bit ? "/windows/SysWOW64": "/windows/System32")
-        let dllPath = dllsUrl.appendingPathComponent(file)
-        let dllDest = url.appendingPathComponent(dllPathComponentByBitness).appendingPathComponent(file) // the logic seems flipped but it's actually how the winwos logic works System32 is for 64 bits libs
-        console.log("\(file) exists")
-        if(enable) {
-            if(!isSameFile(dllPath, dllDest)){
-                if(!f.fileExists(atPath: dllDest.appendingPathExtension("old").path())){
-                    try? f.moveItem(at: dllDest, to: dllDest.appendingPathExtension("old"))
-                } else {
-                    try? f.removeItem(at: dllDest)
-                }
-                try f.copyItem(at: dllPath, to: dllDest)
-            } else {
-                console.log("already patched with the latest dx9 skipping copy")
-            }
-        } else {
-            if(!f.fileExists(atPath: dllDest.path())){
-                try? f.removeItem(at: dllDest)
-            }
-            try f.copyItem(at: dllDest.appendingPathExtension("old"), to: dllDest)
-        }
-        
-    }
-    
-    for file in files {
-        if let dllsUrl = Bundle.main.url(forResource: "d9vk/x32", withExtension: nil) {
-            try copyByBitness(dllsUrl: dllsUrl, file: file, is32Bit: true)
-        } else {
-            console.log("Couldn't find \(file)")
-        }
-        if let dllsUrl = Bundle.main.url(forResource: "d9vk/x64", withExtension: nil) {
-            try copyByBitness(dllsUrl: dllsUrl, file: file, is32Bit: false)
-        } else {
-            console.log("Couldn't find \(file)")
-        }
-    }
-}
-
-class TarDownloader: NSObject, URLSessionDownloadDelegate {
-    /**
-     Class that takes 3 mandatory arguments
-     fromUrl: the http url from where we download
-     onProgress: (Double) called as the download progresses progress is passed to the function
-     onComplete: (URL) called when download + extraction is complete the URL
-     onError: (Error) called at any point there's an error
-     */
-    var fromUrl: URL
-    var downloadDir: URL
-    var onProgress: (Double) -> Void
-    var onComplete: (URL) -> Void
-    var onError: (Error) -> Void
-    
-    init(fromUrl: URL, onProgress: @escaping (Double) -> Void, onComplete: @escaping (URL) -> Void, onError: @escaping (Error) -> Void) {
-        self.downloadDir = TarDownloader.getDownloadsDir()
-        self.fromUrl = fromUrl
-        self.onProgress = onProgress
-        self.onError = onError
-        self.onComplete = onComplete
-        super.init()
-    }
-    
+enum TarDownloader {
     public static func getDownloadsDir() -> URL {
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         return cacheDir.appendingPathComponent("\(appName)/downloads")
@@ -397,73 +273,5 @@ class TarDownloader: NSObject, URLSessionDownloadDelegate {
         let downloadDir = TarDownloader.getDownloadsDir()
         try? FileManager.default.removeItem(at: downloadDir)
         deleteUsrDefOptionStartsWith(prefix: "downloads")
-    }
-    
-    func download() {
-        let f = FileManager.default
-        console.log(self.fromUrl.debugDescription)
-        if let lastDownloadedPath = readUsrDefOptionString(key: namespacedKey("downloads", self.fromUrl.lastPathComponent)){
-            if lastDownloadedPath == self.fromUrl.path(percentEncoded: false) {
-                console.log("download cache found, skipping download")
-                return self.onComplete(self.downloadDir)
-            }
-        }
-        try? f.createDirectory(at: downloadDir, withIntermediateDirectories: true, attributes: nil)
-        let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
-        session.downloadTask(with: fromUrl).resume()
-    }
-    
-    private func extract() -> Process {
-        let filename = fromUrl.lastPathComponent
-        let dest = downloadDir.appendingPathComponent(filename) // assuming the file has the correct extension
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        process.arguments = ["-xf", dest.path, "-C", downloadDir.path] // just xf autodetects the compression format
-        return process
-    }
-    
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard totalBytesExpectedToWrite > 0 else { return }
-        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite) * 100
-        DispatchQueue.main.async {
-            self.onProgress(progress) // percentage
-        }
-    }
-    
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        let f = FileManager.default
-        let destination = downloadDir.appendingPathComponent(fromUrl.lastPathComponent)
-        
-        do {
-            if f.fileExists(atPath: destination.path) {
-                try f.removeItem(at: destination)
-            }
-            try f.moveItem(at: location, to: destination)
-            let process = extract()
-            process.terminationHandler = { process in
-                DispatchQueue.main.async {
-                    if process.terminationStatus == 0 {
-                        self.onComplete(self.downloadDir)
-                        persistUsrDefOptionString(key: namespacedKey("downloads", self.fromUrl.lastPathComponent), value: self.fromUrl.path(percentEncoded: false))
-                    } else {
-                        let error = NSError(domain: "TarDownloader", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: "tar extraction failed"])
-                        self.onError(error)
-                    }
-                }
-            }
-            try? process.run()
-        } catch {
-            DispatchQueue.main.async { self.onError(error) }
-        }
-    }
-    
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error {
-            DispatchQueue.main.async { self.onError(error) }
-        }
-    }
-    
-    func clearTemp() {
-        try? FileManager.default.removeItem(at: downloadDir )
     }
 }

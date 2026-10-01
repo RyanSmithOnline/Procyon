@@ -16,11 +16,6 @@ enum CXGraphicsBackend: String {
     case auto = "auto"
 }
 
-enum OnOff: String {
-    case off = "0"
-    case on = "1"
-}
-
 typealias CXDrives = [String: URL]
 
 struct GameOptionsData: Codable { // this is used for reading saved properties
@@ -415,7 +410,7 @@ extension Game {
     static let emptyGame = Game(from: Game.steamEmptyGame, id: "example", isNative: true, downloadProgress: 100, isInstalled: true, appNames: ["test.exe"])
 }
 
-enum SortingOptions {
+enum SortingOptions: String {
     case name
     case releaseDate
     case publisher
@@ -425,6 +420,10 @@ enum SortingOptions {
 
 class LibraryPageGlobals: ObservableObject {
     @Published var gamesMeta: [GamesMeta] = []
+    /// `gamesMeta` indexed by id. `GameThumbnail` used to do a linear scan of
+    /// `gamesMeta` per thumbnail, which is O(n^2) across the grid: 1000 games
+    /// meant a million `GamesMeta.id` string constructions per render.
+    @Published var gamesMetaIndex: [String: GamesMeta] = [:]
     @Published var folders: [String] = []
     @Published var showOptions: Bool = false
     @Published var filter: String = ""
@@ -448,13 +447,56 @@ class LibraryPageGlobals: ObservableObject {
         self.games + self.customAddedGames
     }
     
+    /// Memoized so the sort runs once per change rather than once per view that
+    /// reads it. `filteredGames` is read by both the grid and the counter, so
+    /// an unmemoized version re-sorted 1000 games on every render pass.
+    private var cachedFilteredGames: [Game]?
+    private var cachedFilteredGamesKey: String = "\u{0}\u{0}\u{0}"
+
     var filteredGames: [Game] {
+        let key = "\(filter)\u{1}\(sortBy.rawValue)\u{1}\(games.count)\u{1}\(customAddedGames.count)\u{1}\(playingID ?? "")"
+        if let cached = cachedFilteredGames, cachedFilteredGamesKey == key {
+            return cached
+        }
+        let computed = computeFilteredGames()
+        cachedFilteredGames = computed
+        cachedFilteredGamesKey = key
+        return computed
+    }
+
+    /// Invalidates the memo when `games` is assigned wholesale.
+    func setGames(_ newValue: [Game]) {
+        self.games = newValue
+        invalidateFilteredGames()
+    }
+
+    /// Progressive append used while a large library loads, so the grid can be
+    /// browsed while later games are still resolving.
+    func addGame(_ game: Game) {
+        self.games.append(game)
+        invalidateFilteredGames()
+    }
+
+    /// Clears both the local manifests and their lookup index.
+    func clearLibrary() {
+        self.gamesMeta.removeAll()
+        self.gamesMetaIndex.removeAll()
+        self.games.removeAll()
+        invalidateFilteredGames()
+    }
+
+    func invalidateFilteredGames() {
+        cachedFilteredGames = nil
+    }
+
+    private func computeFilteredGames() -> [Game] {
         var games: [Game] = self.allGames
         if self.filter.isEmpty || self.filter.count < 3 {
             games = self.allGames
         } else {
+            let needle = self.filter.lowercased()
             games = allGames.filter { item in
-                self.filter.isEmpty || item.name.lowercased().contains(self.filter.lowercased())
+                item.name.lowercased().contains(needle)
             }
         }
         return games.sorted { lhs, rhs in
@@ -472,7 +514,8 @@ class LibraryPageGlobals: ObservableObject {
                 if(!lhs.developers.isEmpty) && (rhs.developers.isEmpty) { return true }
                 return lhs.developers[0].lowercased() < rhs.developers[0].lowercased()
             case .installed:
-                return lhs.isInstalled && !rhs.isInstalled
+                if(lhs.isInstalled != rhs.isInstalled) { return lhs.isInstalled }
+                return lhs.name.lowercased() < rhs.name.lowercased()
             }
         }
     }
@@ -517,15 +560,10 @@ class LibraryPageGlobals: ObservableObject {
     func setLoader(state: Bool) {
         isLaunchingGame = state
     }
-    
-    func setPlayingID( _ id: String?) {
-        playingID = id
-    }
 }
 
 final class AppGlobals: ObservableObject {
     @Published var selectedBottle: String = ""
-    @Published var userID: String? = nil
     @Published var cxAppPath: String?
     
     init(selectedBottle: String? = "", cxAppPath: String? = nil) {

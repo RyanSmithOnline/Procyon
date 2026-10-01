@@ -7,6 +7,15 @@
 
 import AppKit
 
+func resolveAppPath(_ path: String) -> String {
+    if path.hasPrefix("/") {
+        return path
+    } else {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path(percentEncoded: false)
+        return (home as NSString).appendingPathComponent(path)
+    }
+}
+
 func closeWineActivities() async throws {
     // Wait for graceful termination, then escalate to forceTerminate, then give a final wait
     let gracePeriod: UInt64 = 2_000_000_000 // 2 seconds in nanoseconds
@@ -102,27 +111,57 @@ func quitSteam(cxAppPath: String, bottleName: String, isNative: Bool) async thro
             steamApp.terminate() // polite request to quit
         }
     } else {
-        try safeShell("\(cxAppPath)/Contents/SharedSupport/CrossOver/bin/wine --bottle \(bottleName) \"C:\\Program Files (x86)\\Steam\\Steam.exe\" -shutdown")
+        let absPath = resolveAppPath(cxAppPath)
+        try safeShell("env WINEMSYNC=1 \"\(absPath)/Contents/SharedSupport/CrossOver/bin/wine\" --bottle \"\(bottleName)\" \"C:\\Program Files (x86)\\Steam\\Steam.exe\" -shutdown")
     }
-}
-
-func quitWine(cxAppPath: String, bottleName: String) async throws -> Void {
-    console.log("quitting wine...")
-    try safeShell("\(cxAppPath)/Contents/SharedSupport/CrossOver/bin/wine --bottle \(bottleName) wineserver -k")
 }
 
 func openSteam(cxAppPath: String?, selectedBottle: String?) {
-    if cxAppPath == nil || selectedBottle == nil {
+    guard let rawCxPath = cxAppPath, !rawCxPath.isEmpty,
+          let bottleStr = selectedBottle, !bottleStr.isEmpty,
+          let bottleURL = URL(string: bottleStr) else {
+        console.error("openSteam: missing cxAppPath (\(String(describing: cxAppPath))) or selectedBottle (\(String(describing: selectedBottle)))")
         return
     }
-    if let bottleName = URL(string: selectedBottle!)?.lastPathComponent {
-        let steamLaunchCommand = "MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0 CX_GRAPHICS_BACKEND=\"\(CXGraphicsBackend.d3dmetal.rawValue)\" \(cxAppPath!)/Contents/SharedSupport/CrossOver/bin/wine --bottle \(bottleName) \"C:\\Program Files (x86)\\Steam\\Steam.exe\""
-        do {
-            try safeShell(steamLaunchCommand)
-            console.log(steamLaunchCommand)
-        } catch {
-            console.error(String(reflecting: error))
-        }
+    
+    let absoluteCxPath = resolveAppPath(rawCxPath)
+    let wineBin = "\(absoluteCxPath)/Contents/SharedSupport/CrossOver/bin/wine"
+    let wineserverBin = "\(absoluteCxPath)/Contents/SharedSupport/CrossOver/bin/wineserver"
+    let bottleName = bottleURL.lastPathComponent
+    let bottlePath = bottleURL.path(percentEncoded: false)
+    let bottleParentDir = bottleURL.deletingLastPathComponent().path(percentEncoded: false)
+    
+    // Ensure cxbottle.conf contains WINEMSYNC=1 so CrossOver's bin/wine script loads it into environment
+    try? editCXBottleConfigFile(selectedBottle: bottleStr, options: [
+        "WINEMSYNC": "1",
+        "CX_GRAPHICS_BACKEND": CXGraphicsBackend.d3dmetal.rawValue
+    ])
+    
+    let f = FileManager.default
+    let steamExe32 = bottleURL.appendingPathComponent("drive_c/Program Files (x86)/Steam/Steam.exe")
+    let steamExe64 = bottleURL.appendingPathComponent("drive_c/Program Files/Steam/Steam.exe")
+
+    var steamWindowsPath = "C:\\Program Files (x86)\\Steam\\Steam.exe"
+    if f.fileExists(atPath: steamExe32.path(percentEncoded: false)) {
+        steamWindowsPath = "C:\\Program Files (x86)\\Steam\\Steam.exe"
+    } else if f.fileExists(atPath: steamExe64.path(percentEncoded: false)) {
+        steamWindowsPath = "C:\\Program Files\\Steam\\Steam.exe"
+    } else {
+        console.warn("Steam.exe not found in bottle \(bottleName) at \(steamExe32.path). Attempting launch anyway...")
+    }
+
+    // Kill any existing wineserver daemon for this bottle using the actual wineserver binary
+    let killCommand = "WINEPREFIX=\"\(bottlePath)\" \"\(wineserverBin)\" -k"
+    try? safeShell(killCommand)
+    Thread.sleep(forTimeInterval: 0.5)
+
+    let steamLaunchCommand = "env WINEMSYNC=1 CX_BOTTLE_PATH=\"\(bottleParentDir)\" WINEPREFIX=\"\(bottlePath)\" CX_ROOT=\"\(absoluteCxPath)/Contents/SharedSupport/CrossOver\" MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0 CX_GRAPHICS_BACKEND=\"\(CXGraphicsBackend.d3dmetal.rawValue)\" \"\(wineBin)\" --bottle \"\(bottleName)\" \"\(steamWindowsPath)\""
+    
+    do {
+        console.log("Launching Steam with command: \(steamLaunchCommand)")
+        try safeShell(steamLaunchCommand)
+    } catch {
+        console.error("openSteam error: \(String(reflecting: error))")
     }
 }
 
@@ -136,6 +175,7 @@ func launchWindowsGame(id: String, cxAppPath: String, selectedBottle: String, op
         return
     }
     let f = FileManager.default
+    let absoluteCxPath = resolveAppPath(cxAppPath)
 
     var command = ""
     
@@ -161,14 +201,14 @@ func launchWindowsGame(id: String, cxAppPath: String, selectedBottle: String, op
     
     console.warn("applying config changes to the bottle \(selectedBottle)...")
     
-    let bottleName = URL(string: selectedBottle)?.lastPathComponent ?? ""
+    let bottleName = bottleURL.lastPathComponent
+    let bottlePath = bottleURL.path(percentEncoded: false)
+    let bottleParentDir = bottleURL.deletingLastPathComponent().path(percentEncoded: false)
     console.warn("attempting to run steam.exe on game id \(id)")
     let arguments = options != nil ? " " + options!.gameArguments : ""
     let x87cxAppURL = f.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true).appendingPathComponent(PATCHED_CX_X87_APPNAME)
     let steamBootOptions = "-nochatui -nofriendsui -silent -no-browser -no-cef-sandbox -skipinitialbootstrap"
-    let wineEnvs = "WINEDEBUG=-all CX_ROOT=\"\(options!.x87PatchEnabled ? x87cxAppURL.path() : cxAppPath)/Contents/SharedSupport/CrossOver\" WINEPREFIX=\"\(URL(string: selectedBottle)?.path ?? "")\" WINEMSYNC=\(options!.wineMSync ? "1" : "0")"
-    
-//    try cpyd8d9DLLs(to: bottleURL, enable: options!.dx9PatchEnabled)
+    let wineEnvs = "WINEDEBUG=-all CX_BOTTLE_PATH=\"\(bottleParentDir)\" WINEPREFIX=\"\(bottlePath)\" CX_ROOT=\"\(options!.x87PatchEnabled ? x87cxAppURL.path() : absoluteCxPath)/Contents/SharedSupport/CrossOver\" WINEMSYNC=\(options!.wineMSync ? "1" : "0")"
     
     let gameLaunchCommand = appExeURL != nil ? "\"\(appExeURL!.path(percentEncoded: false))\"" : "\"C:\\Program Files (x86)\\Steam\\Steam.exe\" \(steamBootOptions) -applaunch \(String(id))"
     if (options!.x87PatchEnabled) {
@@ -177,9 +217,9 @@ func launchWindowsGame(id: String, cxAppPath: String, selectedBottle: String, op
             return
         }
         let workdirCommand = appExeURL != nil ? "cd \"\(appExeURL!.deletingLastPathComponent().path(percentEncoded: false))\" && " : ""
-        command = "\(workdirCommand)env \(getInlineEnvs(from: options!) + wineEnvs) \(x87cxAppURL.path())Contents/SharedSupport/CrossOver/lib/wine/x86_64-unix/wine \(gameLaunchCommand) \(arguments)"
+        command = "\(workdirCommand)env \(getInlineEnvs(from: options!) + wineEnvs) \"\(x87cxAppURL.path())/Contents/SharedSupport/CrossOver/lib/wine/x86_64-unix/wine\" \(gameLaunchCommand) \(arguments)"
     } else {
-        command = "env \(getInlineEnvs(from: options!) + wineEnvs) \(cxAppPath)/Contents/SharedSupport/CrossOver/bin/wine --bottle \(bottleName) \(gameLaunchCommand) \(arguments)"
+        command = "env \(getInlineEnvs(from: options!) + wineEnvs) \"\(absoluteCxPath)/Contents/SharedSupport/CrossOver/bin/wine\" --bottle \"\(bottleName)\" \(gameLaunchCommand) \(arguments)"
     }
     
     #if DEBUG
@@ -199,10 +239,4 @@ func launchNativeGame(id: String, cxAppPath: String, selectedBottle: String, opt
     }
     console.warn(command)
     try safeShell(command)
-}
-
-func installGame(id: String) {
-//    https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip
-//    steamcmd +login YOUR_USERNAME +app_update 1489410 validate +quit
-//    steamcmd +login USER +force_install_dir "C:\Program Files (x86)\Steam\steamapps\common\MyGame" +app_update 1489410 validate +quit
 }

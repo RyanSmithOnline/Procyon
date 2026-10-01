@@ -30,21 +30,6 @@ final class MountObserver {
     }
 }
 
-final class LaunchObserver {
-    private var cancellables = Set<AnyCancellable>()
-    
-    init(then: @escaping (_: NotificationCenter.Publisher.Output) -> Void) {
-        
-        let center = NSWorkspace.shared.notificationCenter
-        
-        center.publisher(for: NSWorkspace.didLaunchApplicationNotification)
-            .sink { app in
-                then(app)
-            }
-            .store(in: &cancellables)
-    }
-}
-
 final class TerminationObserver {
     private var cancellables = Set<AnyCancellable>()
     

@@ -1,2 +1,7 @@
-Config.xcconfig
 DerivedData/
+.DS_Store
+*.xcuserdatad
+xcuserdata/
+*.xcworkspace/xcuserdata/
+.derived-data-log-*
+Procyon.xcodeproj/project.xcworkspace/xcuserdata/

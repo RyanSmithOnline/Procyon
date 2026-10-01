@@ -6,8 +6,6 @@
 //
 
 import SwiftUI
-import Kingfisher
-import Flow
 import AVKit
 
 struct GameDetailView: View {
@@ -17,10 +15,6 @@ struct GameDetailView: View {
     
     @EnvironmentObject var libraryPageGlobals: LibraryPageGlobals
     @StateObject var gameOptions = GameOptions()
-    var gameFolder: String {
-        let meta = getMeta(libraryPageGlobals.gamesMeta, byID: String(game!.id))!
-        return meta.libraryFolder.appendingPathComponent(meta.installdir).path(percentEncoded: false)
-    }
     
     var body: some View {
         if (game != nil) {
@@ -41,12 +35,17 @@ struct GameDetailView: View {
                                 player.pause()
                             }
                     } else {
-                        KFImage(URL(string: game!.headerImage))
-                            .placeholder {
-                                ProgressView()
+                        CachedImage(
+                            url: URL(string: game!.headerImage),
+                            content: { image in image.resizable().scaledToFit() },
+                            placeholder: { ProgressView() },
+                            fallback: {
+                                ZStack {
+                                    Color.black
+                                    Image(systemName: "photo").font(.largeTitle).foregroundStyle(.secondary)
+                                }
                             }
-                            .resizable()
-                            .scaledToFit()
+                        )
                     }
                     GameHeader(game: $game, showDetailView: $libraryPageGlobals.showDetailView)
                         .padding(30)
@@ -107,7 +106,7 @@ struct GameDetailView: View {
                             
                             if (game!.genres != nil && game!.genres!.count > 0){
                                 Text("Genre:")
-                                HFlow(alignment: .center) {
+                                WrappingStack(alignment: .center) {
                                     ForEach(game!.genres!, id: \.id) { genre in
                                         Tag(genre.description)
                                             .padding(.vertical, 0.5)
@@ -118,7 +117,7 @@ struct GameDetailView: View {
                             
                             if (game!.categories.count > 0){
                                 Text("Category:")
-                                HFlow(alignment: .center) {
+                                WrappingStack(alignment: .center) {
                                     ForEach(game!.categories, id: \.id) { category in
                                         Tag(category.description)
                                             .padding(.vertical, 0.5)
@@ -134,7 +133,7 @@ struct GameDetailView: View {
 
                             if !languages.isEmpty {
                                 Text("Supported languages:")
-                                HFlow(alignment: .center) {
+                                WrappingStack(alignment: .center) {
                                     ForEach(Array(languages.enumerated()), id: \.offset) { pair in
                                         AccentTag(pair.element)
                                             .padding(.vertical, 0.5)
@@ -168,12 +167,17 @@ struct GameDetailView: View {
                                 GridItem(.flexible(maximum: .infinity))
                             ]) {
                                 ForEach(game!.screenshots!, id: \.id) { screenshot in
-                                    KFImage(URL(string: screenshot.pathThumbnail))
-                                        .placeholder {
-                                            ProgressView()
+                                    CachedImage(
+                                        url: URL(string: screenshot.pathThumbnail),
+                                        content: { image in image.resizable().scaledToFit() },
+                                        placeholder: { ProgressView() },
+                                        fallback: {
+                                            ZStack {
+                                                Rectangle().fill(.quaternary)
+                                                Image(systemName: "photo").foregroundStyle(.secondary)
+                                            }
                                         }
-                                        .resizable()
-                                        .scaledToFit()
+                                    )
                                     //                                    .frame(width: 180, height: 100)
                                 }
                             }
@@ -187,12 +191,17 @@ struct GameDetailView: View {
                                 GridItem(.flexible(maximum: .infinity))
                             ]) {
                                 ForEach(game!.movies!, id: \.id) { movie in
-                                    KFImage(URL(string: movie.thumbnail))
-                                        .placeholder {
-                                            ProgressView()
+                                    CachedImage(
+                                        url: URL(string: movie.thumbnail),
+                                        content: { image in image.resizable().scaledToFit() },
+                                        placeholder: { ProgressView() },
+                                        fallback: {
+                                            ZStack {
+                                                Rectangle().fill(.quaternary)
+                                                Image(systemName: "film").foregroundStyle(.secondary)
+                                            }
                                         }
-                                        .resizable()
-                                        .scaledToFit()
+                                    )
                                     //                                    .frame(width: 180, height: 100)
                                 }
                             }

@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Kingfisher
 
 struct GameThumbnail: View {
     var item: Game
@@ -22,8 +21,7 @@ struct GameThumbnail: View {
     }
     var updatedItem: Game {
         var newItem = item
-        if let meta = libraryPageGlobals.gamesMeta.first(where: { $0.id == item.id }){
-            
+        if let meta = libraryPageGlobals.gamesMetaIndex[item.id] {
             newItem.appNames = getAppNames(isNative: meta.isNative, gameURL: meta.gameURL)
             return newItem
         }
@@ -36,13 +34,7 @@ struct GameThumbnail: View {
         }) {
             VStack(alignment: .leading, spacing: 6) {
                 ZStack(alignment: .topTrailing){
-                    KFImage(URL(string: item.headerImage))
-                        .placeholder {
-                            ProgressView()
-                        }
-                        .resizable()
-                        .aspectRatio(2.15, contentMode: .fit)
-                        .frame(maxWidth:.infinity, maxHeight: .infinity, alignment: .top)
+                    HeaderImage(url: URL(string: item.headerImage))
                         
                     HStack(alignment: .top) {
                         if (item.isNative == true) {

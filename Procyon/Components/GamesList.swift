@@ -58,8 +58,7 @@ struct GamesList: View {
             }
             ToolbarItem(placement: .secondaryAction) {
                 Button {
-                    api.deleteOwnedGamesIDsCache()
-                    libraryPageGlobals.gamesMeta.removeAll()
+                    libraryPageGlobals.clearLibrary()
                     Task { await load() }
                 } label: {
                     Image(systemName: "arrow.clockwise")

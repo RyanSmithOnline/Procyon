@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Kingfisher
 
 struct ProfileWidget: View {
     @EnvironmentObject var appGlobals: AppGlobals
@@ -23,15 +22,7 @@ struct ProfileWidget: View {
                     showProfile = true
                 } label: {
                     HStack {
-                        KFImage(URL(string: p.avatar))
-                            .placeholder {
-                                ProgressView()
-                            }
-                            .resizable()
-                            .scaledToFit()
-                            .mask(Circle())
-                            .padding(5)
-                            .frame(width: 40)
+                        AvatarImage(url: URL(string: p.avatar))
                         Text(p.personaName).lineLimit(1)
                     }.frame(maxWidth: 150, alignment: .init(horizontal: .leading, vertical: .center))
                 }
@@ -40,12 +31,7 @@ struct ProfileWidget: View {
                 if let bottlePath = URL(string: appGlobals.selectedBottle) {
                     if let fallbackProfileData = getSteamUserDataFallback(usingBottlePath: bottlePath) {
                         HStack {
-                            KFImage(URL(string: fallbackProfileData.avatar))
-                                .resizable()
-                                .scaledToFit()
-                                .mask(Circle())
-                                .padding(5)
-                                .frame(width: 40)
+                            AvatarImage(url: URL(string: fallbackProfileData.avatar))
                             Text(fallbackProfileData.personaName).lineLimit(1)
                         }.frame(maxWidth: 150, alignment: .init(horizontal: .leading, vertical: .center))
                     }
@@ -60,18 +46,18 @@ struct ProfileWidget: View {
                             ProgressView("Loading profile…")
                         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                     } else if let p = profileData {
-                        let lastLogOff = p.lastLogOff == nil ? "empty" : Date(timeIntervalSince1970: Double(p.lastLogOff!)).formatted()
-                        let timeCreated = Date(timeIntervalSince1970: Double(p.timeCreated)).formatted()
+                        let lastLogOff = (p.lastLogOff ?? 0) > 0
+                            ? Date(timeIntervalSince1970: Double(p.lastLogOff!)).formatted()
+                            : "Unknown"
+                        let timeCreated = p.timeCreated > 0
+                            ? Date(timeIntervalSince1970: Double(p.timeCreated)).formatted()
+                            : "Unknown"
+                        let visibility = [3: "Public", 1: "Private"][p.communityVisibilityState] ?? "Unknown"
                         
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 VStack {
-                                    KFImage(URL(string: p.avatarFull))
-                                        .placeholder {
-                                            ProgressView()
-                                        }
-                                        .resizable()
-                                        .scaledToFit()
+                                    AvatarImage(url: URL(string: p.avatarFull), size: 150)
                                         .frame(maxWidth: .infinity)
                                 }
                                 .frame(width: 82, height: 82)
@@ -85,7 +71,7 @@ struct ProfileWidget: View {
                                         }
                                     }
                                     HStack {
-                                        Tag(p.communityVisibilityState == 3 ? "Public" : "Private")
+                                        Tag(visibility)
                                         Tag(mapPersonaState(p.personaState))
                                     }
                                 }
@@ -108,9 +94,8 @@ struct ProfileWidget: View {
                             //                    Text("locStateCode: \(p.locStateCode ?? "-")")
                             Spacer()
                             VStack(alignment: .leading) {
-                                ProminentButton("Reload Profile Data", systemImage: "arrow.clockwise") {
+                                ProminentButton("Refresh Profile", systemImage: "arrow.clockwise") {
                                     isLoading = true
-                                    api.deleteProfileDataCache()
                                     Task(priority: .background){
                                         await load()
                                     }
@@ -137,14 +122,21 @@ struct ProfileWidget: View {
         defer {
             isLoading = false
         }
-        do {
-            if(appGlobals.userID != nil){
-                profileData = try await api.fetchProfileDetails(userID: appGlobals.userID!)
-            } else {
-                console.error("Couldn't find the userID")
-            }
-        } catch {
-            console.error(String(reflecting: error))
+        guard let bottlePath = URL(string: appGlobals.selectedBottle),
+              let local = getSteamUserDataFallback(usingBottlePath: bottlePath) else {
+            profileData = nil
+            console.error("Couldn't read the profile from loginusers.vdf")
+            return
+        }
+        // Prefer Steam's public community profile, which has the real avatar
+        // and account age; fall back to the local loginusers.vdf data when
+        // offline or when the profile is private.
+        if let remote = await SteamCommunity.fetchProfile(steamID: local.steamID) {
+            profileData = remote
+            console.log("Profile loaded from Steam community (\(remote.personaName))")
+        } else {
+            profileData = local
+            console.log("Profile loaded from local loginusers.vdf (\(local.personaName))")
         }
     }
 }

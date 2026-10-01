@@ -54,11 +54,6 @@ struct ContentView: View {
                 ).ignoresSafeArea()
             }
         )
-        .onAppear() {
-            if(appGlobals.selectedBottle != ""){
-                appGlobals.userID = getSteamUserID(usingBottlePath: URL(string: appGlobals.selectedBottle)!)
-            }
-        }
     }
 }
 

@@ -20,12 +20,7 @@ func getCXDefaultBottlesURL() -> URL {
     return URL(filePath: bottlesPath as! String)
 }
 
-func isCXPatched(appDir: URL) -> Bool {
-    let f = FileManager.default
-    return f.fileExists(atPath: appDir.appendingPathComponent("Contents/cxplog.txt").path(percentEncoded: false))
-}
-
-func getCXPatcherBottlesURL(appDir: URL)  throws -> URL {
+func getCXPatcherBottlesURL(appDir: URL) throws -> URL {
     let f = FileManager.default
     let base = f.homeDirectoryForCurrentUser
     
@@ -50,47 +45,36 @@ func getCXPatcherBottlesURL(appDir: URL)  throws -> URL {
 
 func getAllBottles(appDir: URL) -> [URL] {
     let f = FileManager.default
-    let FORCE_IS_CXPATCHED = true
+    var subfolders: [URL] = []
     
-    do {
-        var subfolders: [URL] = []
-        
-        if(isCXPatched(appDir: appDir) || FORCE_IS_CXPATCHED) {
-            let bottlePathForCXP = try getCXPatcherBottlesURL(appDir: appDir)
-            console.log("app is patched with CXPatcher")
-            do {
-                subfolders = try f.contentsOfDirectory(at: bottlePathForCXP, includingPropertiesForKeys: [.isDirectoryKey], options: [])
-            } catch {
-                console.error(String(reflecting: error))
-                console.error("couldn't find the CXPatched bottles")
-            }
-        } else {
-            let bottlePath = getCXDefaultBottlesURL()
-            console.warn(bottlePath.absoluteString)
-            console.log("app is normal crossover")
-            do {
-                subfolders = try f.contentsOfDirectory(at: bottlePath, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles, .skipsPackageDescendants, .skipsSubdirectoryDescendants])
-            } catch {
-                console.error(String(reflecting: error))
-                console.error("couldn't find the crossover bottles in \(bottlePath.path(percentEncoded: false))")
+    // 1. Try to get CXPatcher configured bottles directory (if any)
+    if let bottlePathForCXP = try? getCXPatcherBottlesURL(appDir: appDir) {
+        if f.fileExists(atPath: bottlePathForCXP.path(percentEncoded: false)) {
+            if let cxpFolders = try? f.contentsOfDirectory(at: bottlePathForCXP, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) {
+                subfolders.append(contentsOf: cxpFolders)
             }
         }
-        console.warn("subfolders \(subfolders.debugDescription)")
-        let filtered = subfolders.filter { url in
-            (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-        }
-        console.warn("filtered: \(filtered.debugDescription)")
-        return filtered
-    } catch {
-        console.error(String(reflecting: error))
     }
-    return []
-}
 
-func modifyBottleSettingOptions(selectedBottle: String, options: [String: String]) {
-    options.forEach { option in
-        console.warn("key: \(option.key), value: \(option.value)")
+    // 2. Also check standard CrossOver bottles directory (~/Library/Application Support/CrossOver/Bottles)
+    let defaultBottlePath = getCXDefaultBottlesURL()
+    if f.fileExists(atPath: defaultBottlePath.path(percentEncoded: false)) {
+        if let defaultFolders = try? f.contentsOfDirectory(at: defaultBottlePath, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles, .skipsPackageDescendants, .skipsSubdirectoryDescendants]) {
+            subfolders.append(contentsOf: defaultFolders)
+        }
     }
+    
+    // Filter to unique valid bottle directories
+    var seenPaths = Set<String>()
+    let filtered = subfolders.filter { url in
+        let path = url.path(percentEncoded: false)
+        guard !seenPaths.contains(path) else { return false }
+        seenPaths.insert(path)
+        return (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+    }
+    
+    console.log("Found \(filtered.count) bottles: \(filtered.map { $0.lastPathComponent })")
+    return filtered
 }
 
 func getCXBottleConfigFileURL(selectedBottle: String) -> URL? {
@@ -100,16 +84,31 @@ func getCXBottleConfigFileURL(selectedBottle: String) -> URL? {
 func editCXBottleConfigFile(selectedBottle: String, options: [String: String]) throws {
     if let bottleURL = getCXBottleConfigFileURL(selectedBottle: selectedBottle) {
         let original = try String(contentsOf: bottleURL, encoding: .utf8)
-        let lines = original.components(separatedBy: .newlines)
-        let newLines = lines.map { line in
+        var lines = original.components(separatedBy: .newlines)
+        var missingKeys = options
+        
+        for i in 0..<lines.count {
             for (key, value) in options {
-                if(line.hasPrefix("\"\(key)\"")) {
-                    return toCrossoverENVString(key, value)
+                if lines[i].hasPrefix("\"\(key)\"") {
+                    lines[i] = toCrossoverENVString(key, value)
+                    missingKeys.removeValue(forKey: key)
                 }
             }
-            return line
         }
-        let updated = newLines.joined(separator: "\n")
+        
+        if !missingKeys.isEmpty {
+            if let index = lines.firstIndex(of: "[EnvironmentVariables]") {
+                for (key, value) in missingKeys {
+                    lines.insert(toCrossoverENVString(key, value), at: index + 1)
+                }
+            } else {
+                lines.append("[EnvironmentVariables]")
+                for (key, value) in missingKeys {
+                    lines.append(toCrossoverENVString(key, value))
+                }
+            }
+        }
+        let updated = lines.joined(separator: "\n")
         try updated.write(to: bottleURL, atomically: true, encoding: .utf8)
     } else {
         console.error("No bottle selected in Procyon config")
@@ -135,27 +134,6 @@ func getDxmtConfigEnv(values: [String]) -> String {
 }
 
 func getInlineEnvs(from: GameOptions) -> String {
-    /**
-     @TO DO:
-     "MVK_CONFIG_FAST_MATH", "1"
-     "MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS", "3"
-     "MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS", "1"
-     "MVK_CONFIG_USE_MTLHEAP", "2"
-     MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS=1 -> used by d9vk
-     
-     # 1. Point to your driver
-     export VK_ICD_FILENAMES="/Volumes/Card/code/mesa/build_x86/src/kosmickrisp/vulkan/kosmickrisp_mesa_icd.x86_64.json"
-
-     # 2. Tell the loader to ignore MoltenVK and use ONLY your driver
-     export VK_ICD_FILENAMES_ONLY=1
-
-     # 3. Disable the "Portability" check that confuses old DXVK
-     export VK_KHR_PORTABILITY_ENUMERATION=0
-
-     # 4. Force DXVK to accept the "Conformant" surface KosmicKrisp provides
-     export DXVK_WSI_DRIVER="vulkan"
-     export DXVK_CONFIG="dxvk.allowNativeVulkan = True"
-     */
     func DoubleToFormattedStr(_ value: Double, _ digits: Int = 2) -> String {
         return String(value.formatted(.number.precision(.fractionLength(0...digits))))
     }
@@ -167,8 +145,6 @@ func getInlineEnvs(from: GameOptions) -> String {
         "D3DM_ENABLE_METALFX=1",
         "DXMT_ENABLE_NVEXT=1",
         "DXVK_ASYNC=1",
-//        "MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS=1", //slower, but more reliable
-//        "MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS=3", //this actually slows down everything
         "MVK_CONFIG_USE_MTLHEAP=2"
     ]
     value += defaults.joined(separator: " ") + " "
@@ -186,10 +162,6 @@ func getInlineEnvs(from: GameOptions) -> String {
         if let url = Bundle.main.url(forResource: "libMoltenVK-experimental", withExtension: "dylib") {
             value += "CX_LIBVULKAN=\"\(url.path(percentEncoded: false))\" "
         }
-//    case "kosmickrisp":
-//        if let url = Bundle.main.url(forResource: "libvulkan_kosmickrisp", withExtension: "dylib") {
-//            value += "CX_LIBVULKAN=\"\(url.path(percentEncoded: false))\" "
-//        }
     default:
         break
     }
@@ -221,8 +193,6 @@ func toCrossoverENVString(_ key: String, _ value: String) -> String {
 }
 
 func parseCXEnvVarString(_ string: String) -> (String, String){
-    // "KEY"="VALUE"
-    // e.g.: "CX_BOTTLE_PATH"="/Users/${USER}/CXPBottles"
     let regex = /\"(\w+?)\"\=\"(.+?)\"/
     var key = ""
     var value = ""
@@ -262,4 +232,3 @@ func getDrivesPaths(at: URL) -> CXDrives {
         return [:]
     }
 }
-

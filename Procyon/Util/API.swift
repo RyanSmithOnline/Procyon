@@ -2,141 +2,111 @@
 //  API.swift
 //  Procyon
 //
-//  Created by Italo Mandara on 29/01/2026.
+//  Game metadata retrieval.
+//
+//  Talks to Valve's public, keyless Steam Store endpoints (see
+//  SteamStoreAPI.swift). The previous Procyon backend (API_HOST / API_KEY)
+//  is gone, so there is no server to depend on.
 //
 
 import Foundation
-import Alamofire
-
-let apiKey = Bundle.main.object(forInfoDictionaryKey: "API_KEY") as! String
-let pr = Bundle.main.object(forInfoDictionaryKey: "API_PROTOCOL") as! String
-let host = Bundle.main.object(forInfoDictionaryKey: "API_HOST") as! String
-let path = Bundle.main.object(forInfoDictionaryKey: "API_PATH") as! String
-let pathm = Bundle.main.object(forInfoDictionaryKey: "API_PATH_M") as! String
-
-let baseAPIURL = "\(pr)://\(host)\(path)"
-let baseAPIMURL = "\(pr)://\(host)\(pathm)"
-
-struct SteamGameResponse: Codable, Sendable {
-    let data: [SteamGame]
-}
-
-struct SteamOwnedGamesResponse: Codable, Sendable {
-    let response: SteamOwnedGames
-}
-
-struct SteamOwnedGamesResponseData: Codable, Sendable {
-    let data: SteamOwnedGamesResponse
-}
-
-struct SteamGameResponseArray: Codable, Sendable {
-    let data: [SteamGame]
-}
 
 enum APIError: Error {
     case badURL
-    case invalidResponse
 }
 
-final class SteamAPI {
+final class SteamAPI: @unchecked Sendable {
     var progress: Double = 0
+
     private var cacheBlacklist: [String] = BLACKLIST
-    private var cacheProfileData: UserInfo? = nil
     private var cache: [String: SteamGame] = [:]
-    private var cacheOwnedGamesIDs: [String] = []
+    private let lock = NSLock()
+
     private var cacheBlacklistURL: URL {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         return dir.appendingPathComponent("ProcyonSteamCacheBlacklist.plist")
-    }
-    private var cacheIDS: [String] {
-        if cache.count < 1 {
-            return []
-        }
-        return cache.map { String($0.key) }
     }
     private var cacheURL: URL {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         return dir.appendingPathComponent("ProcyonSteamCache.plist")
     }
-    private var cacheOwnedGamesIDsURL: URL {
+
+    /// Caches written by builds that still talked to the retired backend.
+    /// Nothing reads them any more, so they are deleted once at startup rather
+    /// than left behind on upgraded installs.
+    private static let legacyCacheNames = [
+        "ProcyonSteamProfileDataCache.plist",
+        "ProcyonSteamOwnedGamesIDsCache.plist",
+    ]
+
+    private func removeLegacyBackendCaches() {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        return dir.appendingPathComponent("ProcyonSteamOwnedGamesIDsCache.plist")
-    }
-    private var profileDataCacheURL: URL {
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        return dir.appendingPathComponent("ProcyonSteamProfileDataCache.plist")
+        for name in Self.legacyCacheNames {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))
+        }
     }
 
     private func loadCache() {
         console.log("Loading caches...")
+        self.removeLegacyBackendCaches()
         self.loadGameCache()
-        self.loadIDCache()
         self.loadBlacklistCache()
-        self.loadProfileDataCache()
     }
-    
+
     init() {
         self.loadCache()
-        if(self.cache.isEmpty){
+        if self.cache.isEmpty {
             console.warn("Cache is empty")
         }
-        if(self.cacheOwnedGamesIDs.isEmpty){
-            console.warn("ID Cache is empty")
-        }
-        if(self.cacheBlacklist.isEmpty){
+        if self.cacheBlacklist.isEmpty {
             console.warn("Blacklist Cache is empty")
         }
     }
+
+    // MARK: - Persistence
+
     private func loadGameCache() {
         do {
             let data = try Data(contentsOf: cacheURL)
-            let decoded = try JSONDecoder().decode([String: SteamGame].self, from: data)
-            self.cache = decoded
-            if (self.cache.isEmpty == false){
-                console.warn("Cache loaded")
+            self.cache = try JSONDecoder().decode([String: SteamGame].self, from: data)
+            if !self.cache.isEmpty {
+                console.warn("Cache loaded: \(self.cache.count) games")
             }
         } catch {
-            console.error("Cache is empty, coulnd't read the file")
+            console.log("No game cache yet, will fetch from the store")
         }
     }
+
+    /// Written once per library load rather than once per game: with a 1000-game
+    /// library the per-game write re-serialised the whole cache 1000 times.
     private func saveGameCache() {
         do {
             let encoded = try JSONEncoder().encode(self.cache)
             try encoded.write(to: self.cacheURL, options: [.atomic])
-            console.warn("Cache saved")
+            console.warn("Cache saved: \(self.cache.count) games")
         } catch {
             console.error(String(reflecting: error))
         }
     }
+
     func deleteGameCache() {
         try? FileManager.default.removeItem(at: cacheURL)
         self.cache.removeAll()
         console.warn("Cache deleted")
     }
-    private func loadIDCache() {
-        do { // TO DO: Edge case - Track changes in the User ID and invalidate cache
-            let data = try Data(contentsOf: cacheOwnedGamesIDsURL)
-            let decoded = try JSONDecoder().decode([String].self, from: data)
-            self.cacheOwnedGamesIDs = decoded
-            if(self.cacheOwnedGamesIDs.isEmpty == false){
-                console.warn("ID Cache loaded")
-            }
-        } catch {
-            console.error("ID Cache is empty, coulnd't read the file")
-        }
-    }
+
     private func loadBlacklistCache() {
         do {
             let data = try Data(contentsOf: cacheBlacklistURL)
-            let decoded = try JSONDecoder().decode([String].self, from: data)
-            self.cacheBlacklist = decoded
-            if(self.cacheBlacklist.isEmpty == false){
-                console.warn("Blacklist Cache loaded")
+            self.cacheBlacklist = try JSONDecoder().decode([String].self, from: data)
+            if !self.cacheBlacklist.isEmpty {
+                console.warn("Blacklist Cache loaded: \(self.cacheBlacklist.count)")
             }
         } catch {
-            console.error("Blacklist Cache is empty, coulnd't read the file")
+            console.log("No blacklist cache yet")
         }
     }
+
     private func saveBlacklistCache() {
         do {
             let encoded = try JSONEncoder().encode(self.cacheBlacklist)
@@ -146,161 +116,207 @@ final class SteamAPI {
             console.error(String(reflecting: error))
         }
     }
+
     func deleteBlacklistCache() {
         try? FileManager.default.removeItem(at: cacheBlacklistURL)
         self.cacheBlacklist.removeAll()
         console.warn("Blacklist Cache deleted")
     }
-    func loadProfileDataCache() {
-        do {
-            let data = try Data(contentsOf: profileDataCacheURL)
-            let decoded = try JSONDecoder().decode(UserInfo.self, from: data)
-            self.cacheProfileData = decoded
-            console.warn("Profile Data Cache loaded")
-        } catch {
-            console.error("Profile Data Cache is empty, couldn't read the file")
-        }
+
+    // MARK: - Cache access
+
+    private func isBlacklisted(_ appID: String) -> Bool {
+        lock.withLock { cacheBlacklist.contains(appID) }
     }
-    func saveProfileDataCache() {
-        do {
-            let encoded = try JSONEncoder().encode(self.cacheProfileData)
-            try encoded.write(to: self.profileDataCacheURL, options: [.atomic])
-            console.warn("Profile Data Cache saved")
-        } catch {
-            console.error(String(reflecting: error))
-        }
+
+    private func cachedGame(_ appID: String) -> SteamGame? {
+        lock.withLock { cache[appID] }
     }
-    func deleteProfileDataCache() {
-        try? FileManager.default.removeItem(at: profileDataCacheURL)
-        self.cacheProfileData = nil
-        // Reset to a minimal empty instance; if you prefer optional, make cacheProfileData optional instead.
-        // Here we keep the type consistent by not mutating cacheProfileData.
-        console.warn("Profile Data Cache deleted")
+
+    private func storeInCache(_ appID: String, _ game: SteamGame) {
+        lock.withLock { cache[appID] = game }
     }
-    private func saveOwnedGamesIDsCache() {
-        do {
-            let encoded = try JSONEncoder().encode(self.cacheOwnedGamesIDs)
-            try encoded.write(to: self.cacheOwnedGamesIDsURL, options: [.atomic])
-            console.warn("IDs Cache saved")
-        } catch {
-            console.error(String(reflecting: error))
+
+    private func addToBlacklist(_ appID: String) {
+        lock.withLock {
+            guard !cacheBlacklist.contains(appID) else { return }
+            cacheBlacklist.append(appID)
         }
     }
 
-    func deleteOwnedGamesIDsCache() {
-        try? FileManager.default.removeItem(at: cacheOwnedGamesIDsURL)
-        self.cacheOwnedGamesIDs.removeAll()
-        console.warn("IDs Cache deleted")
-    }
+    // MARK: - Fetching
+
+    /// Fetches store metadata for one app.
+    ///
+    /// - Throws: `HTTPError.throttled` when Steam rate-limits us. Callers must
+    ///   not treat that as "this game has no store page" — it's temporary, so
+    ///   it must not be blacklisted.
     func fetchGameInfo(appID: String) async throws -> SteamGame? {
-        if self.cacheBlacklist.contains(appID) {
+        if isBlacklisted(appID) {
             console.log("skipping \(appID) as it's blacklisted")
             return nil
         }
-        if (self.cache[appID] != nil) {
+        if let cached = cachedGame(appID) {
             console.cache(appID, key: "gameCache")
-            return self.cache[appID]
+            return cached
         }
-        console.log("fetching \(appID) from the api")
-        let urlString = "\(baseAPIURL)?appid=\(appID)"
-        let headers: HTTPHeaders = ["x-api-key": apiKey]
-        
-        let data = try await AF.request(urlString, method: .get, headers: headers)
-            .validate(statusCode: 200..<300)
-            .serializingData()
-            .value
-        let root = try JSONDecoder().decode(SteamGameResponse.self, from: data)
-        
-        if(root.data.isEmpty) {
-            console.warn("Game with id: \(appID) not found, blacklisting")
-            self.cacheBlacklist.append(appID)
+        guard var components = URLComponents(string: SteamStore.appDetailsURL) else {
+            throw APIError.badURL
+        }
+        components.queryItems = [
+            URLQueryItem(name: "appids", value: appID),
+            URLQueryItem(name: "l", value: SteamStore.language),
+            URLQueryItem(name: "cc", value: SteamStore.countryCode)
+        ]
+        guard let url = components.url else {
+            throw APIError.badURL
+        }
+        console.log("fetching \(appID) from the steam store")
+        let payload = try await HTTPClient.get(url, as: [String: StoreAppEnvelope].self)
+        guard let envelope = payload[appID], envelope.success, let details = envelope.data else {
+            console.warn("Game with id: \(appID) has no store page, blacklisting")
+            addToBlacklist(appID)
             return nil
         }
-        cache[appID] = root.data[0]
-        saveGameCache()
-        return root.data[0]
-        
+        guard let game = SteamGame(store: details, appID: appID) else {
+            return nil
+        }
+        storeInCache(appID, game)
+        return game
     }
-    func fetchGamesInfo(meta: [GamesMeta], setProgress: @escaping (Double) -> Void = { _ in }) async throws -> [Game] {
-        var items: [Game] = []
+
+    /// Builds the game list, emitting each game as soon as it resolves so the
+    /// grid fills in progressively instead of blocking on the slowest game.
+    ///
+    /// Cached games resolve instantly and never touch the network, so a warm
+    /// start paints the whole library at once.
+    func fetchGamesInfo(
+        meta: [GamesMeta],
+        onGame: @escaping @MainActor @Sendable (Game) async -> Void = { _ in },
+        setProgress: @escaping @MainActor @Sendable (Double) -> Void = { _ in }
+    ) async throws -> [Game] {
         let total = meta.count
-        // Reset progress at start
+        guard total > 0 else {
+            setProgress(100)
+            return []
+        }
         self.progress = 0
-        setProgress(self.progress)
-        
-        for (index, meta) in meta.enumerated() {
-            let bDownloaded = Double(meta.BytesDownloaded ?? "0")!
-            let bToDownload = Double(meta.BytesToDownload ?? "0")!
-            let downloadProgress: Double = meta.isDownloaded() ? 100 : (bDownloaded / bToDownload) * 100            
-            do {
-                if let gameInfo = try await self.fetchGameInfo(appID: meta.appid) {
-                    items.append(Game(from: gameInfo, id: meta.id, isNative: meta.isNative, downloadProgress: Double(downloadProgress), isInstalled: meta.installdir.isEmpty == false, appNames: []))
+        await setProgress(0)
+
+        // Written only by this (single) task in group-child order, so the
+        // result array needs no lock.
+        var items = [Game?](repeating: nil, count: total)
+        var completed = 0
+
+        // Games that failed because Steam rate-limited us, retried once the
+        // pacer has recovered. Dropping them instead would silently shrink the
+        // library whenever a big fetch trips throttling.
+        var throttled: [(original: Int, meta: GamesMeta)] = []
+
+        /// - Parameter slots: indices into `items` that these fetches fill.
+        func drain(_ work: [(original: Int, meta: GamesMeta)]) async {
+            let window = await RequestPacer.shared.window
+            await withTaskGroup(of: (Int, Outcome).self) { group in
+                var next = 0
+                func addNext() {
+                    guard next < work.count else { return }
+                    let slot = next
+                    next += 1
+                    let entry = work[slot]
+                    group.addTask {
+                        (slot, await self.buildGame(from: entry.meta))
+                    }
                 }
-            } catch {
-                console.warn("Game with id: \(meta.appid) failed gracefully")
-                console.error(String(reflecting: error))
-            }
-            // Update progress as percentage of total processed
-            if total > 0 {
-                let processed = index + 1
-                let percent = (Double(processed) / Double(total)) * 100.0
-                self.progress = percent
-                setProgress(self.progress)
+                for _ in 0..<max(1, min(window, work.count)) { addNext() }
+                while let (slot, outcome) = await group.next() {
+                    let original = work[slot].original
+                    switch outcome {
+                    case .game(let game):
+                        items[original] = game
+                        await onGame(game)
+                    case .unavailable:
+                        break
+                    case .throttled:
+                        throttled.append((original, work[slot].meta))
+                    }
+                    completed += 1
+                    self.progress = Double(completed) / Double(total) * 100.0
+                    await setProgress(min(self.progress, 100))
+                    addNext()
+                }
             }
         }
-        // Ensure progress is 100% at completion when there were items to process
-        if total > 0 {
-            self.progress = 100
-            setProgress(self.progress)
+
+        await drain(meta.enumerated().map { ($0.offset, $0.element) })
+
+        if !throttled.isEmpty {
+            console.warn("Rate limited; retrying \(throttled.count) games after a pause")
+            // Give the CDN time to lift the block before spending more requests.
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            completed = 0
+            let retry = throttled
+            throttled = []
+            await drain(retry)
+            if !throttled.isEmpty {
+                console.warn("\(throttled.count) games still rate limited; they will appear after the next refresh")
+            }
         }
+
+        self.progress = 100
+        await setProgress(100)
+
+        let built = items.compactMap { $0 }
         console.cacheRelease("The following game's data cache was used", key: "gameCache")
-        self.saveBlacklistCache()
-        return items
+        saveGameCache()
+        saveBlacklistCache()
+        console.log("Library ready: \(built.count)/\(total) games")
+        return built
     }
-    func fetchOwnedGamesIDs(userID: String) async throws -> [String] {
-        if(self.cacheOwnedGamesIDs.count > 0) {
-            console.log("Using cached user data")
-            return self.cacheOwnedGamesIDs
-        }
-        let urlString = "\(baseAPIURL)/ownedGames/?userid=\(userID)"
-        let headers: HTTPHeaders = ["x-api-key": apiKey]
 
-        do {
-            let data = try await AF.request(urlString, method: .get, headers: headers)
-                .validate(statusCode: 200..<300)
-                .serializingData()
-                .value
-            
-            let root = try JSONDecoder().decode(SteamOwnedGamesResponseData.self, from: data)
-            let ids = root.data.response.games.map { String($0.appID) }
-            self.cacheOwnedGamesIDs = ids
-            self.saveOwnedGamesIDsCache()
-            return ids.filter { !self.cacheBlacklist.contains($0) }
-        }
+    /// Why a single game fetch ended the way it did.
+    private enum Outcome {
+        case game(Game)
+        /// No store page exists. Permanently uninteresting, so it is cached as
+        /// blacklisted to avoid re-asking on every launch.
+        case unavailable
+        /// Temporary: we were rate limited. Worth retrying later.
+        case throttled
     }
-    func fetchProfileDetails(userID: String) async throws -> UserInfo? {
-        if(self.cacheProfileData != nil) {
-            console.log("Using cached user data")
-            return self.cacheProfileData!
-        }
-        let urlString = "\(baseAPIURL)/profile/?userid=\(userID)"
-        let headers: HTTPHeaders = ["x-api-key": apiKey]
 
+    /// Builds one `Game`, swallowing per-game failures so a single bad app can
+    /// never abort the whole library load.
+    private func buildGame(from item: GamesMeta) async -> Outcome {
+        let bDownloaded = Double(item.BytesDownloaded ?? "0") ?? 0
+        let bToDownload = Double(item.BytesToDownload ?? "0") ?? 0
+        let downloadProgress: Double = item.isDownloaded()
+            ? 100
+            : (bToDownload > 0 ? (bDownloaded / bToDownload) * 100 : 0)
         do {
-            let data = try await AF.request(urlString, method: .get, headers: headers)
-                .validate(statusCode: 200..<300)
-                .serializingData()
-                .value
-            
-            let root = try JSONDecoder().decode(UserInfoResponse.self, from: data)
-            let profileData = root.data
-            self.cacheProfileData = profileData[0]
-            self.saveProfileDataCache()
-            return profileData[0]
-        } catch {
+            guard let gameInfo = try await fetchGameInfo(appID: item.appid) else {
+                return .unavailable
+            }
+            return .game(Game(
+                from: gameInfo,
+                id: item.id,
+                isNative: item.isNative,
+                downloadProgress: downloadProgress,
+                isInstalled: !item.installdir.isEmpty,
+                appNames: []
+            ))
+        } catch let error as HTTPError {
+            // Rate limiting is temporary, so it must not blacklist the app or
+            // count as "no store page" — the retry pass picks these back up.
+            if case .throttled(let status, _) = error {
+                console.warn("Game \(item.appid) deferred: HTTP \(status)")
+                return .throttled
+            }
+            console.warn("Game with id: \(item.appid) failed gracefully")
             console.error(String(reflecting: error))
-            return nil
+            return .unavailable
+        } catch {
+            console.warn("Game with id: \(item.appid) failed gracefully")
+            console.error(String(reflecting: error))
+            return .unavailable
         }
     }
 }
-

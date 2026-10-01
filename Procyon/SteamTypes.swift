@@ -138,12 +138,6 @@ struct ContentDescriptors: Codable {
     let notes: String?
 }
 
-struct Ratings: Codable {
-    let esrb: RatingBody?
-    let pegi: RatingBody?
-    let usk: RatingBody?
-}
-
 struct RatingBody: Codable {
     let rating: String?
     let requiredAge: String?
@@ -153,38 +147,6 @@ struct RatingBody: Codable {
         case rating
         case requiredAge = "required_age"
         case descriptors
-    }
-}
-
-struct SteamOwnedGame: Codable {
-    let appID: Int
-    let playtimeForever: Int?
-    let playtimeWindowsForever: Int?
-    let playtimeMacForever: Int?
-    let playtimeLinuxForever: Int?
-    let playtimeDeckForever: Int?
-    let rtimeLastPlayed: Int?
-    let playtimeDisconnected: Int?
-
-    enum CodingKeys: String, CodingKey {
-        case appID = "appid"
-        case playtimeForever = "playtime_forever"
-        case playtimeWindowsForever = "playtime_windows_forever"
-        case playtimeMacForever = "playtime_mac_forever"
-        case playtimeLinuxForever = "playtime_linux_forever"
-        case playtimeDeckForever = "playtime_deck_forever"
-        case rtimeLastPlayed = "rtime_last_played"
-        case playtimeDisconnected = "playtime_disconnected"
-    }
-}
-
-struct SteamOwnedGames: Codable {
-    let gameCount: Int
-    let games: [SteamOwnedGame]
-    
-    enum CodingKeys: String, CodingKey {
-        case gameCount = "game_count"
-        case games
     }
 }
 
@@ -274,37 +236,12 @@ struct SteamGame: Codable {
     }
 }
 
-struct InstalledDepot {
-    var manifest: String
-    var size: String
-}
-
 class SteamACFMeta {
     var appid: String = ""
-    var universe: String?
-    var LauncherPath: String?
     var name: String?
-    var StateFlags: String?
     var installdir: String = "/"
-    var LastUpdated: String?
-    var LastPlayed: String?
-    var SizeOnDisk: String?
-    var StagingSize: String?
-    var buildid: String?
-    var LastOwner: String?
-    var DownloadType: String?
-    var UpdateResult: String?
     var BytesToDownload: String?
     var BytesDownloaded: String?
-    var BytesToStage: String?
-    var BytesStaged: String?
-    var TargetBuildID: String?
-    var AutoUpdateBehavior: String?
-    var AllowOtherDownloadsWhileRunning: String?
-    var ScheduledAutoUpdate: String?
-    var InstalledDepots: [String: InstalledDepot]?
-    var UserConfig: [String: String]?
-    var MountedConfig: [String: String]?
 }
 
 struct UserInfo: Codable {
@@ -343,8 +280,4 @@ struct UserInfo: Codable {
         case locCountryCode = "loccountrycode"
         case locStateCode = "locstatecode"
     }
-}
-
-struct UserInfoResponse: Codable {
-    let data: [UserInfo]
 }

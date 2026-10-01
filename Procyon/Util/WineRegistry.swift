@@ -42,23 +42,6 @@ class WineRegSection {
         return String(inner[inner.startIndex..<closeBracket])
     }
 
-    func getValue(forKey key: String) -> String? {
-        guard let entry = values.first(where: { $0.key == key }) else { return nil }
-        switch entry.value.type {
-        case .string(let v): return v
-        case .dword(let v): return String(v)
-        case .expandString(let v): return v
-        case .defaultValue(let v): return v
-        case .hex: return nil
-        }
-    }
-
-    func setValue(forKey key: String, stringValue: String) {
-        guard let index = values.firstIndex(where: { $0.key == key }) else { return }
-        values[index].value.type = .string(stringValue)
-        values[index].value.rawLine = "\"\(key)\"=\"\(stringValue)\""
-    }
-
     func setDword(forKey key: String, value: UInt32) {
         guard let index = values.firstIndex(where: { $0.key == key }) else {
             console.error("Couldn't find key \(key) when setting dword value")
@@ -67,16 +50,6 @@ class WineRegSection {
         values[index].value.type = .dword(value)
         values[index].value.rawLine = "\"\(key)\"=dword:\(String(format: "%08x", value))"
         console.log("Set \(key) to \(value)")
-    }
-
-    func addOrSetValue(forKey key: String, stringValue: String) {
-        if let index = values.firstIndex(where: { $0.key == key }) {
-            values[index].value.type = .string(stringValue)
-            values[index].value.rawLine = "\"\(key)\"=\"\(stringValue)\""
-        } else {
-            let val = WineRegValue(type: .string(stringValue), rawLine: "\"\(key)\"=\"\(stringValue)\"")
-            values.append((key: key, value: val))
-        }
     }
 }
 
@@ -87,8 +60,6 @@ class WineRegistryFile {
      registryFile = WineRegistryFile(fileURL: regURL) -> set the URL of the registry file
      registryFile.load() -> load the file into the registryfile object
      section = registryFile.section(forPath: "Some\\\\Wine\\\\Path") -> get your section example: System\\\\CurrentControlSet\\\\Services\\\\winebus (startying from System as root and without the trailing \\, remember to escape the \)
-     section?.getValue(forKey: "SomeKey") -> get value for the property "SomeKey"
-     section?.addOrSetValue(forKey: "SomeOtherKey", stringValue: "SomeValue") -> set value for the property "SomeOtherKey", if the key doesn't exist it will add the key and set the value
      registryFile.save() -> Saves the file (this will also create a bacup named {{fileName}}.orig)
      */
     var headerLines: [String] = [] // "WINE REGISTRY Version 2", comments, #arch line

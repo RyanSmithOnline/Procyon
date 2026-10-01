@@ -7,7 +7,6 @@
 
 import SwiftUI
 import Combine
-import Kingfisher
 
 struct LibraryPage: View {
     @StateObject var libraryPageGlobals = LibraryPageGlobals()
@@ -30,14 +29,13 @@ struct LibraryPage: View {
                     .ignoresSafeArea()
                     .background {
                         if (libraryPageGlobals.selectedGame?.headerImage != nil){
-                            KFImage(URL(string: libraryPageGlobals.selectedGame!.headerImage))
-                                .placeholder {
-                                    ProgressView()
-                                }
-                                .resizable()
-                                .scaledToFill()
-                                .blur(radius: 10)
-                                .opacity(0.4)
+                            CachedImage(
+                                url: URL(string: libraryPageGlobals.selectedGame!.headerImage),
+                                content: { image in image.resizable().scaledToFill() },
+                                placeholder: { Color.clear }
+                            )
+                            .blur(radius: 10)
+                            .opacity(0.4)
                         }
                     }
                 }
@@ -141,13 +139,14 @@ struct LibraryPage: View {
         }
         progress = 0
         libraryPageGlobals.gamesMeta.removeAll()
+        libraryPageGlobals.gamesMetaIndex.removeAll()
         libraryPageGlobals.folders = getSteamFolderPaths()
         if libraryPageGlobals.folders.isEmpty {
             console.warn("There are no folders to scan.")
         } else {
             for folder in libraryPageGlobals.folders {
                 let folderURL = URL(string: folder)!
-                if (!libraryPageGlobals.gamesMeta.filter { $0.libraryFolder == folderURL }.isEmpty) {
+                if libraryPageGlobals.gamesMeta.contains(where: { $0.libraryFolder == folderURL }) {
                     console.log("skipping gamesMeta processing")
                     return // in memory cache just in case you disconnect/reconnect an external drive that has been scanned already
                 }
@@ -159,28 +158,80 @@ struct LibraryPage: View {
                 }
             }
         }
+        // Optional: merge in games the account owns but hasn't installed, when
+        // the user configured a Steam Web API key. They show as not installed.
+        await mergeOwnedGames()
+        // One index build instead of a per-thumbnail linear scan.
+        libraryPageGlobals.gamesMetaIndex = Dictionary(
+            libraryPageGlobals.gamesMeta.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        // The library is built from the local appmanifest_*.acf files above;
+        // owned-but-not-installed games are added by `mergeOwnedGames()` when an
+        // optional Steam Web API key is configured.
         do {
-            if(appGlobals.userID != nil) {
-                let ownedMeta = try await api
-                    .fetchOwnedGamesIDs(userID: appGlobals.userID!)
-                    .map{
-                        GamesMeta(appid: $0, installdir: "", bytesDownloaded: "0", BytesTodownload: "0")
+            // Games appear as each one resolves rather than after the slowest
+            // fetch, so the grid is browsable while a big library loads.
+            // `seen` is a Set so the dedupe check stays O(1) instead of making
+            // the progressive path O(n^2) across a 1000-game library.
+            var seen = Set<String>()
+            let fetched = try await api.fetchGamesInfo(
+                meta: libraryPageGlobals.gamesMeta,
+                onGame: { game in
+                    if seen.insert(game.id).inserted {
+                        libraryPageGlobals.addGame(game)
                     }
-                    .filter { owned in
-                        !libraryPageGlobals.gamesMeta.contains(where: { $0.appid == owned.appid })
-                    }
-                libraryPageGlobals.gamesMeta.append(contentsOf: ownedMeta)
-            }
-        } catch {
-            console.error("fetchOwnedGamesIDs \(String(reflecting: error))")
-        }
-        
-        do {
-            libraryPageGlobals.games = try await api.fetchGamesInfo(meta: libraryPageGlobals.gamesMeta, setProgress: { self.progress = $0 })
+                },
+                setProgress: { self.progress = $0 }
+            )
+            libraryPageGlobals.setGames(fetched)
             progress = 100
         } catch {
             console.error("fetchGamesInfo \(String(reflecting: error))")
         }
+    }
+
+    /// Merges owned-but-not-installed games into `gamesMeta` as entries with an
+    /// empty install dir, so `fetchGamesInfo` builds them with
+    /// `isInstalled == false` and the grid shows them with an Install button.
+    ///
+    /// Best-effort: needs the optional Steam Web API key, and on failure falls
+    /// back to the last cached owned list so offline starts still show them.
+    @MainActor
+    private func mergeOwnedGames() async {
+        guard let apiKey = Keychain.get(SteamWebAPI.apiKeyAccount), !apiKey.isEmpty,
+              let bottlePath = URL(string: appGlobals.selectedBottle),
+              let user = getSteamUserDataFallback(usingBottlePath: bottlePath) else {
+            return
+        }
+        let owned: [Int]
+        do {
+            owned = try await SteamWebAPI.fetchOwnedAppIDs(apiKey: apiKey, steamID: user.steamID)
+            persistUsrDefData(key: "steamOwnedGames", data: owned)
+        } catch {
+            console.warn("Couldn't fetch owned games; using the cached list")
+            owned = readUsrDefData(key: "steamOwnedGames") ?? []
+        }
+        guard !owned.isEmpty else { return }
+        let known = Set(libraryPageGlobals.gamesMeta.map { $0.appid })
+        // Sentinel folder so each owned entry gets a unique `GamesMeta.id`
+        // without colliding with a real, scanned library folder.
+        let ownedFolder = URL(string: "owned://")!
+        var added = 0
+        for appid in owned {
+            let id = String(appid)
+            guard !known.contains(id), !BLACKLIST.contains(id) else { continue }
+            libraryPageGlobals.gamesMeta.append(GamesMeta(
+                appid: id,
+                installdir: "",
+                isNative: false,
+                libraryFolder: ownedFolder,
+                bytesDownloaded: "0",
+                BytesTodownload: "0"
+            ))
+            added += 1
+        }
+        console.log("Owned games: \(owned.count), added \(added) not installed")
     }
 }
 

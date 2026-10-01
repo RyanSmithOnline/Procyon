@@ -7,11 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		3826404E2F2F67A500E1FCC0 /* Flow in Frameworks */ = {isa = PBXBuildFile; productRef = 3826404D2F2F67A500E1FCC0 /* Flow */; };
-		385777BD2F30B37200346515 /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = 385777BC2F30B37200346515 /* Alamofire */; };
 		385777C12F311EA800346515 /* Logo.icon in Resources */ = {isa = PBXBuildFile; fileRef = 385777C02F311EA800346515 /* Logo.icon */; };
 		385A91C52F2CC302006CCF47 /* ProcyonUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 385A91C32F2CC302006CCF47 /* ProcyonUITestsLaunchTests.swift */; };
-		385A91CE2F2D1561006CCF47 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 385A91CD2F2D1561006CCF47 /* Kingfisher */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -97,9 +94,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				385777BD2F30B37200346515 /* Alamofire in Frameworks */,
-				3826404E2F2F67A500E1FCC0 /* Flow in Frameworks */,
-				385A91CE2F2D1561006CCF47 /* Kingfisher in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -170,9 +164,6 @@
 			);
 			name = Procyon;
 			packageProductDependencies = (
-				385A91CD2F2D1561006CCF47 /* Kingfisher */,
-				3826404D2F2F67A500E1FCC0 /* Flow */,
-				385777BC2F30B37200346515 /* Alamofire */,
 			);
 			productName = Procyon;
 			productReference = 383306842F2BE63D00228E6C /* Procyon.app */;
@@ -256,11 +247,6 @@
 			);
 			mainGroup = 3833067B2F2BE63D00228E6C;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				385A91CC2F2D1561006CCF47 /* XCRemoteSwiftPackageReference "Kingfisher" */,
-				3826402E2F2F655600E1FCC0 /* XCRemoteSwiftPackageReference "SwiftUI-Flow" */,
-				385777BB2F30B37200346515 /* XCRemoteSwiftPackageReference "Alamofire" */,
-			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 383306852F2BE63D00228E6C /* Products */;
 			projectDirPath = "";
@@ -478,7 +464,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = S5P3AKN3YC;
+				DEVELOPMENT_TEAM = 3A8UXVMLM2;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -540,7 +526,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = S5P3AKN3YC;
+				DEVELOPMENT_TEAM = 3A8UXVMLM2;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -593,7 +579,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = S5P3AKN3YC;
+				DEVELOPMENT_TEAM = 3A8UXVMLM2;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
@@ -615,7 +601,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = S5P3AKN3YC;
+				DEVELOPMENT_TEAM = 3A8UXVMLM2;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
@@ -636,7 +622,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = S5P3AKN3YC;
+				DEVELOPMENT_TEAM = 3A8UXVMLM2;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = itmandar.ProcyonUITests;
@@ -656,7 +642,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = S5P3AKN3YC;
+				DEVELOPMENT_TEAM = 3A8UXVMLM2;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = itmandar.ProcyonUITests;
@@ -710,51 +696,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		3826402E2F2F655600E1FCC0 /* XCRemoteSwiftPackageReference "SwiftUI-Flow" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/tevelee/SwiftUI-Flow";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 3.1.1;
-			};
-		};
-		385777BB2F30B37200346515 /* XCRemoteSwiftPackageReference "Alamofire" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/Alamofire/Alamofire.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 5.11.1;
-			};
-		};
-		385A91CC2F2D1561006CCF47 /* XCRemoteSwiftPackageReference "Kingfisher" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/onevcat/Kingfisher";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 8.6.2;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		3826404D2F2F67A500E1FCC0 /* Flow */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 3826402E2F2F655600E1FCC0 /* XCRemoteSwiftPackageReference "SwiftUI-Flow" */;
-			productName = Flow;
-		};
-		385777BC2F30B37200346515 /* Alamofire */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 385777BB2F30B37200346515 /* XCRemoteSwiftPackageReference "Alamofire" */;
-			productName = Alamofire;
-		};
-		385A91CD2F2D1561006CCF47 /* Kingfisher */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 385A91CC2F2D1561006CCF47 /* XCRemoteSwiftPackageReference "Kingfisher" */;
-			productName = Kingfisher;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 3833067C2F2BE63D00228E6C /* Project object */;
 }
