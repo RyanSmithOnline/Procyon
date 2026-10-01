@@ -13,9 +13,8 @@ repository and keep it alongside the binary.
 
 | Component | Path | Upstream | Licence |
 | --- | --- | --- | --- |
-| Wine (patched macOS port) | `wine/` | [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds), patched sources [Gcenx/wine](https://github.com/Gcenx/wine) (shipped via CrossOver) | LGPL-2.1-or-later |
 | DXVK for macOS (fallback snapshot) | `dxvk/` | [Gcenx/DXVK-macOS](https://github.com/Gcenx/DXVK-macOS) | LGPL-2.1-or-later |
-| D9VK | `d9vk/` | [doitsujin/dxvk](https://github.com/doitsujin/dxvk) | LGPL-2.1-or-later |
+| D9VK | `d9vk/` | [DualCoder/d9vk](https://github.com/DualCoder/d9vk) | LGPL-2.1-or-later |
 | MoltenVK | `libMoltenVK-latest.dylib`, `libMoltenVK-experimental.dylib` | [KhronosGroup/MoltenVK](https://github.com/KhronosGroup/MoltenVK) | Apache-2.0 |
 | Vulkan driver (macOS) | `libvulkan_kosmickrisp.dylib`, `kosmickrisp_mesa_icd.x86_64.json` | [KosmicKrisp (Mesa)](https://docs.mesa3d.org/drivers/kosmickrisp.html), prebuilt by [crueter-ci/KosmicKrisp](https://github.com/crueter-ci/KosmicKrisp) | Apache-2.0 |
 | Rosetta x86_64 shim | `libRuntimeRosettax87`, `runtime_loader` | [Lifeisawful/rosettax87](https://github.com/Lifeisawful/rosettax87) | See upstream |
@@ -41,29 +40,17 @@ them.
 | DXMT (release `-builtin` assets) | [3Shain/dxmt](https://github.com/3Shain/dxmt) | LGPL-2.1-or-later (Wine components) |
 | DXVK for macOS (release `-builtin` assets) | [Gcenx/DXVK-macOS](https://github.com/Gcenx/DXVK-macOS) | LGPL-2.1-or-later |
 
-## Wine components come from the bundle
+## Wine runtime
 
-Procyon does not download a Wine runtime. The launcher runs the Wine inside your
-installed CrossOver app (`Contents/SharedSupport/CrossOver/bin/wine`), so
-upgrading CrossOver is what upgrades Wine.
+Procyon relies on the Wine runtime included with CrossOver Preview
+(Wine 11.15, at `Contents/SharedSupport/CrossOver/bin/wine`). Upgrading CrossOver
+updates Wine, avoiding mixed Wine components across versions.
 
-The patcher does, however, install one bundled component into the patched copy,
-because it is a self-contained drop-in for a single library and so does not
-depend on the Wine vintage underneath it:
+The patcher installs one self-contained bundled library into the patched copy:
 
 | Bundled path | Source | Licence |
 | --- | --- | --- |
 | `d9vk/x32/d3d9_builtin.dll`, `d9vk/x64/d3d9_builtin.dll` | [DualCoder/d9vk](https://github.com/DualCoder/d9vk) | LGPL-2.1-or-later |
-
-Earlier versions of this fork also overlaid the Wine core (`ntdll`, `win32u`,
-`winedmo`, `winegstreamer`) from a bundled `Gcenx/macOS_Wine_builds` snapshot.
-That is not done any more, and those files are no longer bundled: `ntdll.so` is
-the first library every Wine process loads, so installing one from a different
-Wine vintage than the target CrossOver broke the runtime outright
-(`wine: failed to load start.exe: c000000d`), preventing Steam and every other
-program from starting. Patching now removes any such files left behind by an
-older build. Nothing outside the patched copy is modified, and re-patching from
-Options rebuilds the copy from your installed CrossOver.
 
 DXMT is selected at launch with `CX_GRAPHICS_BACKEND=dxmt`. It is not in
 `Procyon/Libs/`: it is downloaded from `3Shain/dxmt` at patch time, and

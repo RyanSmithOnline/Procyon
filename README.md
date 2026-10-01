@@ -26,7 +26,7 @@ Upstream project by [@italomandara](https://github.com/italomandara). This is a 
 ## Requirements
 
 - macOS 26.2 or later
-- CrossOver 26 or the CrossOver preview
+- CrossOver preview
 - A bottle with Steam installed
 
 ## Setup
@@ -97,21 +97,15 @@ The patcher now resolves the newest upstream release of each component and insta
 
 Both use the `-builtin` release variants, which are plain DLL/SO pairs meant to be dropped into a Wine prefix. For each one the patcher asks the GitHub releases API for the latest tag, downloads the matching asset, extracts it, and copies the payload over the copied app. Archives are cached under `~/Library/Caches/Procyon/downloads/components/`, keyed by tag, so re-patching is quick and works offline once a version has been fetched. Use *Delete all downloads cache* in Options to force a refetch.
 
-**Wine is not downloaded, and its core is not overlaid either.** There is no upstream Wine release that is safe to drop into a current CrossOver — `Gcenx/macOS_Wine_builds` only publishes generic `wine-devel`/`wine-staging` trees, and mixing a Wine from a different vintage into a bottle is the surest way to break it. CrossOver's own Wine is left completely intact, including `ntdll` and `win32u`.
+### Wine runtime
 
-An earlier version of this fork overlaid the Wine core components from a bundled snapshot. That does not work: `ntdll.so` is the first library every Wine process loads, and the bundled copy was a different Wine vintage than the CrossOver build it was dropped into, so the runtime failed before any program could start:
-
-```
-wine: failed to load start.exe: c000000d
-```
-
-That broke Steam and every other launch. Only D9VK is overlaid now, over `lib/wine/`:
+This fork does not overlay or mix Wine core binaries. It relies strictly on the Wine runtime provided by CrossOver Preview (Wine 11.15), avoiding broken Wine dependencies or DLL mismatches. Only self-contained D9VK libraries (`d3d9.dll`) are overlaid into `lib/wine/`:
 
 | Component | Why |
 | --- | --- |
 | `d3d9.dll` (D9VK) | `d3d9`, which DXVK has not shipped for a long time |
 
-D9VK is a self-contained drop-in for a single library, so it is safe to install regardless of the Wine vintage underneath it. If you patched with an older build, re-patch from Options: the patcher now removes the stale `ntdll`/`win32u`/`winedmo`/`winegstreamer` files it used to install, which repairs an already-broken patched app. Nothing outside the patched copy is ever touched.
+D9VK is a self-contained drop-in for a single library, so it is safe to install. Nothing outside the patched copy is ever touched.
 
 D9VK is installed from the bundle and DXVK from its upstream release, with the bundled DXVK snapshot as fallback. If a download fails (offline, GitHub rate limit, unexpected release layout) the patcher logs it and falls back to the bundled snapshot, and DXMT is skipped so CrossOver's own DXMT is left in place. You never end up with a half-installed component.
 
